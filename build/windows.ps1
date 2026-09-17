@@ -54,16 +54,30 @@ try {
     if ((Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asset.sha256) { throw "Asset hash mismatch: $($asset.output)" }
   }
   $stage = 'dotnet-sdk'
-  $sdks = @(& dotnet --list-sdks)
+  $dotnet = (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue).Source
+  if (-not $dotnet) {
+    $dotnet = 'C:\Users\Acer\dotnet10\dotnet.exe'
+  }
+  if (-not (Test-Path $dotnet)) { throw '.NET 10 SDK was not found on the Windows build runner.' }
+  $sdks = @(& $dotnet --list-sdks)
   if (-not ($sdks -match '^10\.0\.')) {
     $script = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
     Invoke-WebRequest 'https://raw.githubusercontent.com/dotnet/install-scripts/47940ac9fc30a2f2dd19167165d0bb0774625f67/src/dotnet-install.ps1' -OutFile $script
     & $script -Version '10.0.401' -InstallDir (Join-Path $env:RUNNER_TEMP 'dotnet10') -NoPath
     $env:PATH = (Join-Path $env:RUNNER_TEMP 'dotnet10') + ';' + $env:PATH
   }
-  dotnet --info | Out-File out/reports/dotnet.txt
+  & $dotnet --info | Out-File out/reports/dotnet.txt
   $stage = 'speech-environment'
-  $python = (& py -3.11 -c 'import sys; print(sys.executable)').Trim()
+  $python = $null
+$pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
+if ($pyLauncher) {
+  $python = (& py.exe -3.11 -c 'import sys; print(sys.executable)').Trim()
+} else {
+  $python = (Get-ItemProperty 'HKCU:\Software\Python\PythonCore\3.11\InstallPath' -ErrorAction SilentlyContinue).ExecutablePath
+  if (-not $python) {
+    $python = (Get-ItemProperty 'HKLM:\Software\Python\PythonCore\3.11\InstallPath' -ErrorAction SilentlyContinue).ExecutablePath
+  }
+}
   if (-not (Test-Path $python)) { throw 'Python 3.11 x64 was not found on the Windows build runner.' }
   & $python -m venv out/venv
   Assert-Exit 'Create build environment'
@@ -82,7 +96,7 @@ try {
   Copy-Item out/worker/speakcity-speech-worker out/app/speech -Recurse
   Copy-Item out/models out/app/speech/models -Recurse
   $stage = 'desktop-compile'
-  dotnet publish src/SpeakCity/SpeakCity.csproj -c Release -r win-x64 --self-contained true -o out/app 2>&1 | Tee-Object out/reports/dotnet-publish.log
+  & $dotnet publish src/SpeakCity/SpeakCity.csproj -c Release -r win-x64 --self-contained true -o out/app 2>&1 | Tee-Object out/reports/dotnet-publish.log
   Assert-Exit 'Compile Windows desktop app'
   $stage = 'packaged-app-tests'
   $exe = Join-Path $root 'out/app/SpeakCity.exe'
@@ -230,3 +244,10 @@ try {
   } catch { Write-Output "Incomplete-candidate release skipped: $($_.Exception.Message)" }
   throw
 }
+
+
+
+
+
+
+
