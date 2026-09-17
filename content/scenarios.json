@@ -1,0 +1,626 @@
+{
+  "airport": {
+    "id": "airport",
+    "title": {
+      "en": "Airport",
+      "kk": "Әуежай",
+      "ru": "Аэропорт"
+    },
+    "role": {
+      "en": "Airport check-in agent",
+      "kk": "Әуежайдағы тіркеу қызметкері",
+      "ru": "Сотрудник регистрации в аэропорту"
+    },
+    "mission": {
+      "en": "Check in for a pretend flight. Choose your seat and ask where to go.",
+      "kk": "Ойдан шығарылған рейске тіркеліңіз. Орын таңдаңыз және қайда бару керегін сұраңыз.",
+      "ru": "Зарегистрируйтесь на вымышленный рейс. Выберите место и спросите, куда идти."
+    },
+    "opening": "Welcome to the airport! Where are you flying today?",
+    "context": "You are a friendly airport check-in agent helping the learner take a fictional flight. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Respond to the meaning of the learner's latest answer and generate a relevant in-role follow-up, not a fixed questionnaire. Remember all supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent the learner's answers. Adapt to their destination, luggage, seat preference, questions, and requests for help. If they give a destination and one suitcase together, move to an unknown useful detail such as seat preference instead of asking either fact again. If they already have a boarding pass, help with the gate rather than restarting check-in. Answer their questions before moving on. Treat identity and travel documents as already checked. Never request real passport, contact, or payment information, legal names, dates of birth, addresses, document images, or booking codes. If private information is volunteered, do not echo it; return to made-up details. Any flight, gate, or boarding time you supply must be clearly fictional and remain consistent. When the travel task is complete, help them move on or close politely; do not restart the questions. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "I would like to check in, please. | I have one suitcase. | I would like a window seat.",
+    "image": "airport.webp",
+    "vocabulary": [
+      {
+        "word": "boarding pass",
+        "meaning": {
+          "en": "The document you show to get on a plane.",
+          "kk": "Ұшаққа отыру талоны.",
+          "ru": "Посадочный талон."
+        },
+        "example": "Here is my boarding pass."
+      },
+      {
+        "word": "luggage",
+        "meaning": {
+          "en": "The bags you take on a trip.",
+          "kk": "Сапарға алып жүретін жүк.",
+          "ru": "Багаж для поездки."
+        },
+        "example": "I have one piece of luggage."
+      },
+      {
+        "word": "check in",
+        "meaning": {
+          "en": "Register before a flight.",
+          "kk": "Рейске тіркелу.",
+          "ru": "Зарегистрироваться на рейс."
+        },
+        "example": "I would like to check in, please."
+      },
+      {
+        "word": "departure gate",
+        "meaning": {
+          "en": "The place where you board your plane.",
+          "kk": "Ұшаққа отырғызу қақпасы.",
+          "ru": "Выход на посадку."
+        },
+        "example": "Where is the departure gate?"
+      },
+      {
+        "word": "window seat",
+        "meaning": {
+          "en": "A seat next to the window.",
+          "kk": "Терезе жанындағы орын.",
+          "ru": "Место у окна."
+        },
+        "example": "I would like a window seat."
+      },
+      {
+        "word": "suitcase",
+        "meaning": {
+          "en": "A large travel bag for clothes.",
+          "kk": "Киім салатын жол сөмкесі, шабадан.",
+          "ru": "Чемодан для вещей."
+        },
+        "example": "I have one suitcase."
+      }
+    ]
+  },
+  "hotel": {
+    "id": "hotel",
+    "title": {
+      "en": "Hotel",
+      "kk": "Қонақүй",
+      "ru": "Отель"
+    },
+    "role": {
+      "en": "Hotel receptionist",
+      "kk": "Қонақүйдің қабылдау қызметкері",
+      "ru": "Администратор отеля"
+    },
+    "mission": {
+      "en": "Check in at a pretend hotel. Ask for your key and information about breakfast.",
+      "kk": "Ойдан шығарылған қонақүйге тіркеліңіз. Кілтіңізді сұрап, таңғы ас туралы біліңіз.",
+      "ru": "Заселитесь в вымышленный отель. Попросите ключ и узнайте о завтраке."
+    },
+    "opening": "Welcome to our hotel! Do you have a reservation?",
+    "context": "You are a welcoming receptionist at a fictional hotel. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Respond to the learner's meaning and generate relevant in-role follow-ups instead of following a fixed questionnaire. Remember supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent learner answers. If they have a reservation, treat it as found and verified without asking for identification. If they do not, help them choose a room using only missing details, such as how many nights or whether they want one bed or two. Do not assume they are travelling alone or with family. If they already gave the room type and number of nights, move to the key, breakfast, or a need they mention rather than asking those details again. Answer their questions and adapt to their priorities, such as finding their room or asking for a towel. Keep invented room numbers and breakfast times clearly fictional and consistent. Never request real passport, contact, or payment information, names, dates of birth, home addresses, reservation codes, or document images. Registration and any payment are already handled in this pretend visit. Do not repeat volunteered private information; return to fictional details. Finish naturally once they have what they need; do not restart check-in. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "I have a reservation. | I would like a room for two nights. | What time is breakfast?",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "room",
+        "meaning": {
+          "en": "A place in a hotel where you sleep.",
+          "kk": "Қонақүйде түнеуге арналған бөлме.",
+          "ru": "Номер в отеле."
+        },
+        "example": "Where is my room?"
+      },
+      {
+        "word": "key",
+        "meaning": {
+          "en": "Something you use to open a locked door.",
+          "kk": "Есік ашатын кілт.",
+          "ru": "Ключ от двери."
+        },
+        "example": "Can I have my key, please?"
+      },
+      {
+        "word": "reservation",
+        "meaning": {
+          "en": "A booking made before you arrive.",
+          "kk": "Бөлмені алдын ала брондау.",
+          "ru": "Предварительная бронь."
+        },
+        "example": "I have a reservation."
+      },
+      {
+        "word": "night",
+        "meaning": {
+          "en": "The dark part of the day when people usually sleep.",
+          "kk": "Түн.",
+          "ru": "Ночь."
+        },
+        "example": "I would like to stay for one night."
+      },
+      {
+        "word": "breakfast",
+        "meaning": {
+          "en": "The meal you eat in the morning.",
+          "kk": "Таңғы ас.",
+          "ru": "Завтрак."
+        },
+        "example": "What time is breakfast?"
+      },
+      {
+        "word": "reception",
+        "meaning": {
+          "en": "The hotel desk where staff help guests.",
+          "kk": "Қонақүйдің қабылдау орны.",
+          "ru": "Стойка регистрации в отеле."
+        },
+        "example": "I can ask at reception."
+      }
+    ]
+  },
+  "cafe": {
+    "id": "cafe",
+    "title": {
+      "en": "Café",
+      "kk": "Кафе",
+      "ru": "Кафе"
+    },
+    "role": {
+      "en": "Friendly café server",
+      "kk": "Кафедегі жылы жүзді даяшы",
+      "ru": "Приветливый официант в кафе"
+    },
+    "mission": {
+      "en": "Order a snack or drink. Say what you would like and ask a polite question.",
+      "kk": "Жеңіл тағамға немесе сусынға тапсырыс беріңіз. Қалауыңызды айтыңыз және сыпайы сұрақ қойыңыз.",
+      "ru": "Закажите перекус или напиток. Скажите о своих пожеланиях и задайте вежливый вопрос."
+    },
+    "opening": "Welcome to our café! What would you like to order?",
+    "context": "You are a friendly server in a fictional café. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Respond to the meaning of the learner's order and generate a relevant in-role follow-up, not a fixed questionnaire. Remember all supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent learner answers. Follow the food or drink they actually choose. Never assume coffee when they chose tea or juice. Juice is always served cold; never offer hot juice. Ask about size, hot or cold, milk, or eating here versus takeaway only when relevant and not already supplied. Do not ask about milk for juice or drink size for a sandwich. If the complete drink order is given, move to an unknown useful detail such as eating here or takeaway, or ask whether they want food. If all needed details are known, serve the pretend order and let the learner ask a question or finish; do not repeat the order as a loop. Offer two simple, age-appropriate options if they need help and respect a refusal. Never request real passport, contact, or payment information, customer names, addresses, card numbers, or delivery details. Handle the bill only as roleplay without real transactions or quoted prices. Do not repeat volunteered private information. Never give medical or allergen-safety assurances; if asked, explain that real ingredients must be checked with real staff. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "Could I see the menu, please? | A small tea, please. | To take away, please.",
+    "image": "cafe.webp",
+    "vocabulary": [
+      {
+        "word": "menu",
+        "meaning": {
+          "en": "A list of food and drinks you can order.",
+          "kk": "Тағамдар мен сусындар тізімі: ас мәзірі.",
+          "ru": "Меню: список блюд и напитков."
+        },
+        "example": "Could I see the menu, please?"
+      },
+      {
+        "word": "order",
+        "meaning": {
+          "en": "Ask for food or a drink.",
+          "kk": "Тағамға немесе сусынға тапсырыс беру.",
+          "ru": "Заказать еду или напиток."
+        },
+        "example": "I am ready to order."
+      },
+      {
+        "word": "takeaway",
+        "meaning": {
+          "en": "Food or drink to take with you.",
+          "kk": "Өзіңізбен бірге алып кететін тағам немесе сусын.",
+          "ru": "Еда или напиток с собой."
+        },
+        "example": "A takeaway tea, please."
+      },
+      {
+        "word": "small",
+        "meaning": {
+          "en": "Not large in size.",
+          "kk": "Көлемі кіші, шағын.",
+          "ru": "Маленький по размеру."
+        },
+        "example": "I would like a small juice."
+      },
+      {
+        "word": "bill",
+        "meaning": {
+          "en": "A list showing what you need to pay.",
+          "kk": "Төлеу қажет соманы көрсететін шот.",
+          "ru": "Счёт за заказ."
+        },
+        "example": "Could I have the bill, please?"
+      },
+      {
+        "word": "please",
+        "meaning": {
+          "en": "A polite word used when asking for something.",
+          "kk": "Сыпайы өтініш сөзі: өтінемін.",
+          "ru": "Вежливое слово при просьбе: пожалуйста."
+        },
+        "example": "A glass of water, please."
+      }
+    ]
+  },
+  "shop": {
+    "id": "shop",
+    "title": {
+      "en": "Shop",
+      "kk": "Дүкен",
+      "ru": "Магазин"
+    },
+    "role": {
+      "en": "Shop assistant",
+      "kk": "Дүкен сатушысы",
+      "ru": "Продавец"
+    },
+    "mission": {
+      "en": "Ask for an item. Choose a colour and size, then decide if you want it.",
+      "kk": "Қажетті затты сұраңыз. Түсі мен өлшемін таңдап, оны алғыңыз келе ме, соны айтыңыз.",
+      "ru": "Попросите нужную вещь. Выберите цвет и размер, затем решите, хотите ли её взять."
+    },
+    "opening": "Hello! What are you looking for today?",
+    "context": "You are a helpful assistant in a fictional shop selling everyday items such as shirts, books, and bags. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Respond to what the learner actually wants and generate a relevant in-role follow-up rather than running a fixed questionnaire. Remember supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent learner answers. Adapt your questions to their chosen item, colour, size, and purpose. If they ask for a small blue shirt, do not ask its colour or size again; offer a pretend fitting room or ask about a bag when appropriate. Do not ask for a clothing size or offer a fitting room when they chose a book. If they are unsure, offer two simple choices instead of a long catalogue. Keep invented stock details consistent and let them change their mind or leave without pressure. If their full request is already clear, move to trying the item, handing it over, or closing, not repeated confirmation. Never request real passport, contact, or payment information, names, delivery addresses, account details, body measurements, or card numbers. Do not repeat private information the learner volunteers. All items and any purchase are pretend; do not quote prices, collect money, or create a real order. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "Do you have a blue shirt? | I need a small size. | Can I try it on?",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "shirt",
+        "meaning": {
+          "en": "Clothes you wear on the top half of your body.",
+          "kk": "Жейде.",
+          "ru": "Рубашка."
+        },
+        "example": "I would like a blue shirt."
+      },
+      {
+        "word": "size",
+        "meaning": {
+          "en": "How big or small something is.",
+          "kk": "Өлшем.",
+          "ru": "Размер."
+        },
+        "example": "Do you have this in a small size?"
+      },
+      {
+        "word": "colour",
+        "meaning": {
+          "en": "Red, blue, green, and other ways things look.",
+          "kk": "Түс.",
+          "ru": "Цвет."
+        },
+        "example": "Do you have another colour?"
+      },
+      {
+        "word": "try on",
+        "meaning": {
+          "en": "Put on clothes to see if they fit.",
+          "kk": "Киіп көру.",
+          "ru": "Примерить одежду."
+        },
+        "example": "Can I try on this shirt?"
+      },
+      {
+        "word": "large",
+        "meaning": {
+          "en": "Big in size.",
+          "kk": "Үлкен.",
+          "ru": "Большой."
+        },
+        "example": "This shirt is too large."
+      },
+      {
+        "word": "bag",
+        "meaning": {
+          "en": "Something you use to carry your things.",
+          "kk": "Сөмке; зат салатын пакет.",
+          "ru": "Сумка; пакет для вещей."
+        },
+        "example": "Can I have a bag, please?"
+      }
+    ]
+  },
+  "hospital": {
+    "id": "hospital",
+    "title": {
+      "en": "Hospital",
+      "kk": "Аурухана",
+      "ru": "Больница"
+    },
+    "role": {
+      "en": "Clinic receptionist",
+      "kk": "Емхана тіркеушісі",
+      "ru": "Регистратор в поликлинике"
+    },
+    "mission": {
+      "en": "Visit a pretend clinic. Ask to see a nurse, describe a simple pretend problem, and ask where to wait.",
+      "kk": "Емханаға барғандай сөйлесіп көріңіз. Мейіргерге қаралғыңыз келетінін және ойдан шығарылған шағымыңызды айтыңыз. Қайда күту керегін сұраңыз.",
+      "ru": "Разыграйте визит в поликлинику. Попросите позвать медсестру или медбрата, назовите простую вымышленную жалобу и спросите, где подождать."
+    },
+    "opening": "Hello! How can I help you at our pretend clinic?",
+    "context": "You are a welcoming clinic receptionist in a fictional hospital setting, not a clinician. This is language roleplay for asking to see a nurse, stating a simple invented complaint, and finding a waiting room; it is not diagnosis or treatment advice. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Generate a relevant in-role follow-up from the learner's meaning, not a fixed questionnaire. Remember supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent learner answers. Use only made-up visit details. If they already said they have an appointment or a pretend headache, do not ask for those facts again. Acknowledge briefly without restating the complaint, then help with the next administrative step, such as seeing a nurse or knowing where to wait. If they only want a location, answer that instead of asking about symptoms. Do not run symptom checklists, ask for medical history, assess severity, interpret tests, diagnose, suggest medicines or doses, recommend treatment, or assure them that a symptom is harmless. Never request real passport, contact, or payment information, names, dates of birth, addresses, insurance numbers, medical records, or private health details. Do not repeat volunteered private information. If they ask about a real health problem, state that this is language practice and direct them to a qualified healthcare professional without clinical advice. If they describe an actual emergency, pause roleplay and tell them to seek immediate help from local emergency services or a nearby trusted adult; do not assess the condition. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "I would like to see a nurse. | I have a headache in this story. | Where can I wait?",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "appointment",
+        "meaning": {
+          "en": "An agreed time to see someone.",
+          "kk": "Алдын ала белгіленген қабылдау уақыты.",
+          "ru": "Запись на приём."
+        },
+        "example": "I have an appointment."
+      },
+      {
+        "word": "nurse",
+        "meaning": {
+          "en": "A person trained to care for people who are ill.",
+          "kk": "Мейіргер.",
+          "ru": "Медсестра или медбрат."
+        },
+        "example": "Can I see a nurse, please?"
+      },
+      {
+        "word": "doctor",
+        "meaning": {
+          "en": "A person trained to help people with health problems.",
+          "kk": "Дәрігер.",
+          "ru": "Врач."
+        },
+        "example": "Is the doctor here?"
+      },
+      {
+        "word": "headache",
+        "meaning": {
+          "en": "Pain in your head.",
+          "kk": "Бас ауруы.",
+          "ru": "Головная боль."
+        },
+        "example": "In this story, I have a headache."
+      },
+      {
+        "word": "waiting room",
+        "meaning": {
+          "en": "A room where you wait before an appointment.",
+          "kk": "Күту бөлмесі.",
+          "ru": "Зал ожидания."
+        },
+        "example": "Where is the waiting room?"
+      },
+      {
+        "word": "help",
+        "meaning": {
+          "en": "Do something for a person who needs it.",
+          "kk": "Көмектесу.",
+          "ru": "Помогать."
+        },
+        "example": "Can you help me, please?"
+      }
+    ]
+  },
+  "directions": {
+    "id": "directions",
+    "title": {
+      "en": "Directions",
+      "kk": "Жол сұрау",
+      "ru": "Как пройти"
+    },
+    "role": {
+      "en": "City map guide",
+      "kk": "Қала картасы бойынша жол көрсетуші",
+      "ru": "Помощник по карте города"
+    },
+    "mission": {
+      "en": "Choose a place on the pretend city map. Ask how to get there and check the way.",
+      "kk": "Ойдан шығарылған қала картасынан бір жерді таңдаңыз. Оған қалай жетуге болатынын сұрап, жолды нақтылаңыз.",
+      "ru": "Выберите место на карте вымышленного города. Спросите, как туда пройти, и уточните путь."
+    },
+    "opening": "Hello! Where would you like to go on our map?",
+    "context": "You are a friendly guide using only this fixed fictional three-by-three city grid. Read each row from left to right. Top row: Airport—Hotel—School. Middle row: Hospital—Café—Shop. Bottom row: City Map pavilion—Park—Job Interview office. Streets connect adjacent cells horizontally or vertically, never diagonally. These nine places and their positions cannot change. Never invent real addresses, street names, new places, distances, or travel times. Left and right mean the viewer's left and right on this map, not the learner's facing direction. Use simple phrases with left, right, across the street, next to, and top, middle, or bottom row. A move across a street goes to one adjacent cell, not across a diagonal or over another cell. For a vertical move, say the row above or below and keep the same column. Verify each step against the grid before speaking. If no starting place was supplied, explain once that you are at City Map pavilion and use it as the start; accept another listed start when supplied. Ask for a destination only if it is unknown. Example valid route from City Map pavilion to Café: go right to Park, then cross the street to the row above to reach Café. Use at most two short route steps per turn. Track the supplied start, destination, and any moves the learner confirms; never reset or unnecessarily repeat those facts or ask for them again. Do not assume the learner moved just because you gave an instruction. If already at the destination, say so rather than inventing a trip. If they name a place outside the grid, explain that it is not on this map and offer listed options. Adapt in-role follow-ups to their questions or confusion rather than using a fixed questionnaire. Use simple A1-A2 English and at most one question per turn. Never request real passport, contact, or payment information, a home address, live location, or GPS data; do not echo volunteered private information. This map is not real navigation. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "Where is the Café? | I am at the City Map pavilion. | Do I go left or right?",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "left",
+        "meaning": {
+          "en": "The side opposite to right.",
+          "kk": "Сол жақ.",
+          "ru": "Левая сторона; налево."
+        },
+        "example": "The Airport is left of the Hotel."
+      },
+      {
+        "word": "right",
+        "meaning": {
+          "en": "The side opposite to left.",
+          "kk": "Оң жақ.",
+          "ru": "Правая сторона; направо."
+        },
+        "example": "The Shop is right of the Café."
+      },
+      {
+        "word": "across",
+        "meaning": {
+          "en": "From one side to the other side.",
+          "kk": "Арғы бетке, бір жағынан екінші жағына.",
+          "ru": "На другую сторону; через."
+        },
+        "example": "Go across the street from the Hotel to the Café."
+      },
+      {
+        "word": "next to",
+        "meaning": {
+          "en": "Beside something, with nothing between.",
+          "kk": "Дәл жанында, қасында.",
+          "ru": "Рядом с."
+        },
+        "example": "The School is next to the Hotel."
+      },
+      {
+        "word": "top row",
+        "meaning": {
+          "en": "The line of places at the top of the map.",
+          "kk": "Жоғарғы қатар.",
+          "ru": "Верхний ряд."
+        },
+        "example": "The School is in the top row."
+      },
+      {
+        "word": "bottom row",
+        "meaning": {
+          "en": "The line of places at the bottom of the map.",
+          "kk": "Төменгі қатар.",
+          "ru": "Нижний ряд."
+        },
+        "example": "The Park is in the bottom row."
+      }
+    ]
+  },
+  "school": {
+    "id": "school",
+    "title": {
+      "en": "School",
+      "kk": "Мектеп",
+      "ru": "Школа"
+    },
+    "role": {
+      "en": "Friendly teacher",
+      "kk": "Жылы жүзді мұғалім",
+      "ru": "Приветливый учитель"
+    },
+    "mission": {
+      "en": "Meet a teacher. Talk about what you like and ask about a class or school club.",
+      "kk": "Мұғаліммен танысыңыз. Нені ұнататыныңызды айтып, сабақ немесе мектеп үйірмесі туралы сұраңыз.",
+      "ru": "Познакомьтесь с учителем. Расскажите, что вам нравится, и спросите об уроке или школьном кружке."
+    },
+    "opening": "Welcome to our school! What do you like to learn?",
+    "context": "You are a friendly teacher welcoming the learner to a fictional school or learning club. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Generate relevant in-role follow-ups from the learner's meaning, not a fixed questionnaire or language test. Remember supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent learner answers. Adapt to the learner's interests and chosen purpose: a new class, a club visit, asking about a lesson, or finding a room. If they say they like drawing, offer an art activity or ask what they like to draw rather than asking their favourite subject again. If they already chose a club and asked its meeting time, answer the time instead of restarting introductions. Offer two simple choices if they are unsure. Do not assume their age, grade, abilities, or family situation; an adult can practise an imagined class or club conversation too. Treat school details, lesson times, rooms, and homework as fictional and keep them consistent. Help them ask a practical question and close naturally when their task is complete. Never request real passport, contact, or payment information, full names, ages, dates of birth, school names or addresses, student IDs, grades, passwords, or family contact details. Do not echo volunteered private information; use pretend details instead. Do not grade the learner or turn their hobbies into judgments about ability. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn, even though you are playing a teacher. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "I like art. | What time is the lesson? | Can I join the club?",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "class",
+        "meaning": {
+          "en": "A group of students who learn together.",
+          "kk": "Бірге оқитын оқушылар тобы: сынып.",
+          "ru": "Класс: группа учеников."
+        },
+        "example": "I am new in this class."
+      },
+      {
+        "word": "teacher",
+        "meaning": {
+          "en": "A person who helps students learn.",
+          "kk": "Мұғалім.",
+          "ru": "Учитель."
+        },
+        "example": "Can I ask the teacher?"
+      },
+      {
+        "word": "subject",
+        "meaning": {
+          "en": "Something you study, like English or art.",
+          "kk": "Оқылатын пән.",
+          "ru": "Учебный предмет."
+        },
+        "example": "Art is my favourite subject."
+      },
+      {
+        "word": "homework",
+        "meaning": {
+          "en": "School work you do at home.",
+          "kk": "Үй тапсырмасы.",
+          "ru": "Домашнее задание."
+        },
+        "example": "What is our homework?"
+      },
+      {
+        "word": "lesson",
+        "meaning": {
+          "en": "A time when a teacher helps you learn something.",
+          "kk": "Сабақ.",
+          "ru": "Урок."
+        },
+        "example": "What time is the English lesson?"
+      },
+      {
+        "word": "club",
+        "meaning": {
+          "en": "A group that meets to do an activity together.",
+          "kk": "Ортақ іспен айналысатын үйірме.",
+          "ru": "Кружок по интересам."
+        },
+        "example": "Can I join the art club?"
+      }
+    ]
+  },
+  "interview": {
+    "id": "interview",
+    "title": {
+      "en": "Job Interview",
+      "kk": "Жұмысқа орналасу сұхбаты",
+      "ru": "Собеседование"
+    },
+    "role": {
+      "en": "Friendly interviewer",
+      "kk": "Жылы жүзді сұхбат жүргізуші",
+      "ru": "Доброжелательный интервьюер"
+    },
+    "mission": {
+      "en": "Talk about what you enjoy and what you can do. Practise an interview for a school club, a volunteer role, or a job.",
+      "kk": "Нені ұнататыныңызды және не істей алатыныңызды айтыңыз. Мектеп үйірмесіне қосылу, ерікті болу немесе жұмысқа орналасу үшін сұхбаттасып көріңіз.",
+      "ru": "Расскажите, что вам нравится и что вы умеете. Потренируйтесь проходить собеседование для школьного кружка, волонтёрства или работы."
+    },
+    "opening": "Hello! Would you like to talk about a school club, helping others, or a job?",
+    "context": "You are a kind interviewer in a fictional practice interview suitable for all ages. Adapt your role to the learner's choice: a school club leader, a volunteer coordinator, or an interviewer for an imagined everyday job. If they already named the role they want, use it without asking them to choose again. Never assume that they are an adult, already employed, or have work experience. Hobbies, class projects, helping at home, and invented examples are all valid answers. Use simple A1-A2 English, one or two short sentences and at most one question per turn. Respond to the learner's meaning and generate genuine in-role follow-ups instead of a fixed interview script. Remember all supplied details; never ask again for, unnecessarily repeat, contradict, or replace them. Do not invent their experience or answers. If they enjoy drawing, ask a simple relevant question about an art task; if they say they work well with others, invite one simple example instead of asking the same skill question again. Explore what they enjoy, can do, and would like to learn. Let them ask a question about the pretend role. Do not use stressful trick questions, adult-only work, hazardous tasks, judgments about intelligence, or promises of a real job or admission. Never ask for age, legal name, actual employer or school, CV files, immigration status, references, private family facts, salary details, or real passport, contact, or payment information. Do not echo volunteered private information; suggest fictional details instead. If they have no experience, use a hobby or a simple imagined task without criticism. Close positively when they finish, without a hiring decision or language score. If meaning is unclear, ask a neutral clarification. Never correct grammar, grade language, or rewrite answers as corrections during dialogue, including the closing turn. Grammar feedback belongs only in a separate after-dialogue review, after the learner ends the conversation and the application explicitly requests that review.",
+    "hint": "I enjoy drawing. | I am good at helping people. | I would like to learn.",
+    "image": "lucy.webp",
+    "vocabulary": [
+      {
+        "word": "enjoy",
+        "meaning": {
+          "en": "Like doing something.",
+          "kk": "Бір істі ұнату.",
+          "ru": "Получать удовольствие от чего-либо."
+        },
+        "example": "I enjoy drawing."
+      },
+      {
+        "word": "good at",
+        "meaning": {
+          "en": "Able to do something well.",
+          "kk": "Бір істі жақсы істей алу.",
+          "ru": "Хорошо уметь что-либо делать."
+        },
+        "example": "I am good at drawing."
+      },
+      {
+        "word": "learn",
+        "meaning": {
+          "en": "Get a new skill or understand something new.",
+          "kk": "Үйрену; жаңа білім алу.",
+          "ru": "Учиться; узнавать новое."
+        },
+        "example": "I would like to learn new things."
+      },
+      {
+        "word": "team",
+        "meaning": {
+          "en": "A group of people who work together.",
+          "kk": "Бірге жұмыс істейтін топ.",
+          "ru": "Команда."
+        },
+        "example": "I like working in a team."
+      },
+      {
+        "word": "help",
+        "meaning": {
+          "en": "Make something easier for another person.",
+          "kk": "Көмектесу.",
+          "ru": "Помогать."
+        },
+        "example": "I like to help other people."
+      },
+      {
+        "word": "work",
+        "meaning": {
+          "en": "Do a job or a task.",
+          "kk": "Жұмыс істеу; тапсырма орындау.",
+          "ru": "Работать; выполнять задание."
+        },
+        "example": "I like to work with other people."
+      }
+    ]
+  }
+}

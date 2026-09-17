@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Python build
+*.egg-info/
+.pytest_cache/
+
+# .NET / Visual Studio
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# Build / generated output
+out/
+dist/
+publish/
+*.msi
+*.exe
+
+# Local build/cache
+.build/cache/
+.build/tmp/
+*.log
+
+# Speech model files / downloaded models
+speech/models/
+speech/cache/
+models/
+*.onnx
+*.safetensors
+*.bin
+
+# Secrets / local configuration
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+
+# OS files
+Thumbs.db
+.DS_Store

@@ -1,0 +1,66 @@
+name: SPEAKCITY Windows desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.build/**'
+      - 'README.md'
+      - 'docs/**'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the private project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build and test the desktop app when its source is ready
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Test-Path 'build/windows.ps1') {
+            & ./build/windows.ps1
+            if ($LASTEXITCODE -ne 0) { throw "Desktop build returned $LASTEXITCODE" }
+          } else {
+            Write-Output 'Windows runner is available. Desktop source has not been uploaded yet; no installer has been built.'
+            dotnet --list-sdks
+            python --version
+          }
+
+      - name: Record build status in the private repository
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceReady = Test-Path 'build/windows.ps1'
+          $report = @{
+            result = $env:BUILD_RESULT
+            phase = $(if ($sourceReady) { 'desktop-build' } else { 'windows-preflight-only' })
+            os = (Get-CimInstance Win32_OperatingSystem).Caption
+            architecture = $env:PROCESSOR_ARCHITECTURE
+            run_id = $env:GITHUB_RUN_ID
+            commit = $env:GITHUB_SHA
+            note = 'Windows build evidence, not a physical Windows 11 microphone test.'
+          } | ConvertTo-Json -Depth 4
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
+          $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/contents/.build/windows-status.json"
+          $body = @{ message = 'Record Windows build status'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($report)); branch = 'main' }
+          $existing = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
+          if ($existing.StatusCode -eq 200) { $body.sha = ($existing.Content | ConvertFrom-Json).sha }
+          elseif ($existing.StatusCode -ne 404) { throw "Cannot inspect build status path: $($existing.StatusCode)" }
+          Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json) | Out-Null
+          Write-Output $report

@@ -1,0 +1,27 @@
+[
+  {
+    "encoded": "assets-source/airport.webp.b64",
+    "output": "ui/assets/airport.webp",
+    "sha256": "52c0b9802f191090bd9232681040dae6b25ac49fc302345b51fa630f787c64c8"
+  },
+  {
+    "encoded": "assets-source/cafe.webp.b64",
+    "output": "ui/assets/cafe.webp",
+    "sha256": "e0beac330bf38a5d33c28666e27183d64ae48ca492ca4e4a26341203f0fba8c2"
+  },
+  {
+    "encoded": "assets-source/city.webp.b64",
+    "output": "ui/assets/city.webp",
+    "sha256": "bef3fbec105ebc3555555dff65de6b4bc78cc017065c0b3e993d7093eab73baa"
+  },
+  {
+    "encoded": "assets-source/lucy.webp.b64",
+    "output": "ui/assets/lucy.webp",
+    "sha256": "43eea03832f3229f7f2cd42c014aec466789568374e16d6dbcf25a0e72570fa7"
+  },
+  {
+    "encoded": "assets-source/App.ico.b64",
+    "output": "src/SpeakCity/App.ico",
+    "sha256": "5fe36c7ac5abd382e8e34b91a78dac44ff5d27466022b988bc5e7c8e8cd013c6"
+  }
+]

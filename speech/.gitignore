@@ -1,0 +1,16 @@
+# Local/downloaded/build outputs only; never commit model/native binaries.
+models/
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+*.partial
+*.onnx
+*.bin
+*.wav
+*.dll
+*.exe
+*.pyd
+*.so
+speech-test-*/
