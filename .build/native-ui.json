@@ -1,0 +1,6 @@
+{
+  "status": "failed",
+  "passed": false,
+  "error": "The interface process started but never connected to the window. Reinstall SPEAKCITY, and if it continues allow SPEAKCITY and msedgewebview2.exe in your security software.",
+  "stage": null
+}
