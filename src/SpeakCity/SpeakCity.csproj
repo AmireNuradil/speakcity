@@ -20,4 +20,14 @@
     <Content Include="../../ui/**/*" Exclude="../../ui/tests/**;../../ui/README.md" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../content/scenarios.json" Link="content/scenarios.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup Condition="'$(SPEAKCITY_STAGE_SPEECH)' != 'false'">
+    <!-- The frozen worker and its models come from the canonical build outputs
+         (out/worker from PyInstaller, out/models verified against
+         speech/assets-manifest.json). Staging them beside the app makes
+         dotnet run/publish a complete install, so the native window's
+         microphone and voice work in development without an installer. -->
+    <Content Include="../../out/worker/speakcity-speech-worker/speakcity-speech-worker.exe" Link="speech/speakcity-speech-worker.exe" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="../../out/worker/speakcity-speech-worker/_internal/**/*" Link="speech/_internal/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="../../out/models/**/*" Link="speech/models/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
 </Project>

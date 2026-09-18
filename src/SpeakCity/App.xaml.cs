@@ -23,35 +23,26 @@ public partial class App : Application
             int code = await StartupDiagnostics.RunAsync(e.Args[1]);
             Shutdown(code); return;
         }
-        bool smoke = mode == "--ui-smoke" && e.Args.Length >= 2;
+        // Both smoke modes drive the native path now: the same router, bundled
+        // speech worker and scenario catalog the learner uses, with a scripted AI
+        // completion standing in for the provider. No browser component anywhere.
+        if ((mode == "--ui-smoke" || mode == "--ui-smoke-native") && e.Args.Length >= 2)
+        {
+            int code = await NativeSmoke.RunAsync(e.Args[1]);
+            Shutdown(code); return;
+        }
         // The native WPF window is the default interface. It needs no browser
         // component at all. --webview still opens the old WebView2 window so the
         // two can be compared while the browser dependency is being removed.
         bool webview = mode == "--webview";
         // An automated run has nobody to click a dialog: a modal message there is not a
         // prompt, it is a hang. Such runs report through their exit code and JSON file.
-        bool silent = smoke || AppStartup.Automated;
+        bool silent = AppStartup.Automated;
         _singleInstance = new Mutex(true, "Local\\SPEAKCITY.Desktop", out bool first);
         if (!first)
         {
             if (silent)
             {
-                if (smoke)
-                {
-                    try
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!);
-                        File.WriteAllText(e.Args[1], System.Text.Json.JsonSerializer.Serialize(new
-                        {
-                            status = "skipped",
-                            passed = true,
-                            skipped = true,
-                            skipped_reason = "another-instance-running",
-                            error = "Another SPEAKCITY window already holds this Windows session."
-                        }));
-                    }
-                    catch { }
-                }
                 Shutdown(0); return;
             }
             MessageBox.Show("SPEAKCITY is already open. Look for its window on your taskbar.", "SPEAKCITY", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -65,17 +56,16 @@ public partial class App : Application
             if (silent) { Shutdown(1); return; }
             MessageBox.Show("SPEAKCITY encountered an unexpected problem. Please restart the app. Your saved vocabulary is kept.", "SPEAKCITY", MessageBoxButton.OK, MessageBoxImage.Error);
         };
-        string? smokeReport = smoke ? e.Args[1] : null;
-        // The smoke check still drives the WebView2 window for now, so CI keeps
-        // producing the same evidence until the browser dependency is removed.
-        if (!webview && !smoke)
+        // The smoke check drives the native path headlessly, so the browser window
+        // is only opened when someone explicitly asks for the old interface.
+        if (!webview)
         {
             var nativeWindow = new NativeMainWindow();
             MainWindow = nativeWindow;
             nativeWindow.Show();
             return;
         }
-        var window = new MainWindow(smokeReport);
+        var window = new MainWindow(null);
         MainWindow = window;
         window.Show();
     }

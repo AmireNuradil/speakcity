@@ -42,6 +42,12 @@ public sealed class NativeMainWindow : Window
     private string? _sessionId;
     private string? _scenarioId;
     private int _turnCount;
+    // Voice warm-up: the first STT/TTS hashes 465 MB and loads Whisper/Kokoro.
+    // Starting that in the background with visible status keeps the first
+    // conversation turn from looking frozen. Results are stored for /api/bootstrap.
+    private Task<JsonObject>? _voicePing;
+    private volatile bool _voiceReady;
+
     private int _maxTurns = 8;
     public NativeMainWindow()
     {
@@ -180,7 +186,13 @@ public sealed class NativeMainWindow : Window
         {
             var body = new JsonObject { ["text"] = text, ["voice"] = "american", ["speed"] = 0.95 };
             var response = await CallAsync("POST", "/api/tts", body);
-            if (response is null || response.Status != 200 || response.Body.Length <= 44) return;
+            if (response is null || response.Status != 200 || response.Body.Length <= 44)
+            {
+                // Surface the actual stage ("The bundled speech component is missing…",
+                // "The local speech component took too long…") instead of failing silently.
+                SetStatus("Lucy's voice could not play: " + FailureText(response, ReadJson(response)) + " Typing still works.");
+                return;
+            }
             string path = Path.Combine(Path.GetTempPath(), $"speakcity-tts-{Guid.NewGuid():N}.wav");
             await File.WriteAllBytesAsync(path, response.Body);
             _player.Open(new Uri(path));
@@ -192,6 +204,42 @@ public sealed class NativeMainWindow : Window
             // A missing or busy voice must never block the conversation.
             SetStatus("Lucy's voice could not play. Typing still works.");
         }
+    }
+
+    /// <summary>
+    /// One background ping per window: warms the worker process and model loading
+    /// before the first turn, and records whether voice can work at all. It never
+    /// changes whether the learner can type.
+    /// </summary>
+    private async void StartWarmupAsync()
+    {
+        if (_router is null || _voicePing is not null) return;
+        _voicePing = Task.Run(async () =>
+        {
+            var response = await CallAsync("GET", "/api/bootstrap");
+            return ReadJson(response) ?? new JsonObject();
+        });
+        try
+        {
+            JsonObject bootstrap = await _voicePing;
+            _voiceReady = bootstrap["tts_installed"]?.GetValue<bool>() == true && bootstrap["stt_installed"]?.GetValue<bool>() == true;
+            if (_voiceReady)
+                SetStatus(ApiConfigStore.IsConfigured(_config)
+                    ? "Voice ready. Choose a place and press Start conversation."
+                    : "Voice ready, but AI is not configured. Press Configure AI, test the connection, save, then Start.");
+            else
+            {
+                SetStatus("Voice is unavailable: the bundled speech models did not load. Reinstall SPEAKCITY. Typing still works.");
+                AppStartup.Note("speech-worker", "models-not-ready");
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            _voiceReady = false;
+            SetStatus("Voice is unavailable: the speech component could not start. Reinstall SPEAKCITY. Typing still works.");
+        }
+        UpdateButtons();
     }
 
     private void BuildControls(Grid root)
@@ -302,9 +350,18 @@ private async Task InitializeAsync()
             _speech = new SpeechWorkerClient();
             _api = new ApiClient(() => _config);
             _router = new AppRouter(_speech, ConfigureTaskAsync, () => _config, _api.CompleteJsonAsync, catalogPath);
-            SetStatus(ApiConfigStore.IsConfigured(_config)
-                ? "Ready. Choose a place and press Start conversation."
-                : "Press Configure AI, test the connection, save, then press Start conversation.");
+            if (_speech.WorkerPath is { Length: > 0 } && !File.Exists(_speech.WorkerPath))
+            {
+                SetStatus("Voice is unavailable: the bundled speech component is missing. Reinstall SPEAKCITY. Typing still works.");
+                AppStartup.Note("speech-worker", "missing", _speech.ResolvedFrom);
+            }
+            else
+            {
+                StartWarmupAsync();
+                SetStatus(ApiConfigStore.IsConfigured(_config)
+                    ? "Voice engine starting… Choose a place and press Start conversation."
+                    : "Voice engine starting… Press Configure AI, test the connection, save, then press Start conversation.");
+            }
         }
         catch (Exception)
         {

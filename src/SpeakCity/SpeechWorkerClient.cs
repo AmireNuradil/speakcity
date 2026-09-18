@@ -8,17 +8,58 @@ namespace SpeakCity;
 
 public sealed class SpeechWorkerClient : IDisposable
 {
+    private const string InstalledSpeechDirectory = @"Programs\SPEAKCITY AI\speech";
     private readonly SemaphoreSlim _serial = new(1, 1);
     private Process? _process;
     private bool _disposed;
+    private bool _notedStart;
     public string WorkerPath { get; }
-    public SpeechWorkerClient(string? path = null) => WorkerPath = path ?? Path.Combine(AppContext.BaseDirectory, "speech", "speakcity-speech-worker.exe");
+    public string ResolvedFrom { get; }
+
+    /// <summary>
+    /// Worker beside the app first, then the installed app's copy; an explicit
+    /// path or a SPEAKCITY_SPEECH_WORKER environment override wins. Only local
+    /// File.Exists checks — no registry and no network.
+    /// </summary>
+    public static (string Path, string Source) ResolveWorker()
+    {
+        string? configured = Environment.GetEnvironmentVariable("SPEAKCITY_SPEECH_WORKER");
+        if (!string.IsNullOrWhiteSpace(configured))
+            return (Environment.ExpandEnvironmentVariables(configured), "configured");
+        string besideApp = Path.Combine(AppContext.BaseDirectory, "speech", "speakcity-speech-worker.exe");
+        if (File.Exists(besideApp)) return (besideApp, "beside-app");
+        string installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            InstalledSpeechDirectory, "speakcity-speech-worker.exe");
+        if (File.Exists(installed)) return (installed, "installed-app");
+        return (besideApp, "missing");
+    }
+
+    public SpeechWorkerClient(string? path = null)
+    {
+        if (path is not null)
+        {
+            WorkerPath = path;
+            ResolvedFrom = "explicit";
+        }
+        else
+            (WorkerPath, ResolvedFrom) = ResolveWorker();
+    }
 
     private void EnsureStarted()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_process is { HasExited: false }) return;
-        if (!File.Exists(WorkerPath)) throw new InvalidOperationException("The bundled speech component is missing. Repair or reinstall SPEAKCITY.");
+        if (!File.Exists(WorkerPath))
+        {
+            // Say exactly which folder was searched so a broken install can be
+            // fixed without developer tools. Paths contain no secrets.
+            AppStartup.Note("speech-worker", "missing", ResolvedFrom);
+            string hint = ResolvedFrom == "installed-app"
+                ? " The application folder's own copy is missing as well."
+                : "";
+            throw new InvalidOperationException(
+                $"The bundled speech component is missing at {WorkerPath}.{hint} Repair or reinstall SPEAKCITY.");
+        }
         var info = new ProcessStartInfo(WorkerPath)
         {
             WorkingDirectory = Path.GetDirectoryName(WorkerPath)!, UseShellExecute = false,
@@ -31,7 +72,20 @@ public sealed class SpeechWorkerClient : IDisposable
         info.Environment["HF_HUB_OFFLINE"] = "1";
         info.Environment["HF_HUB_DISABLE_TELEMETRY"] = "1";
         info.Environment["PYTHONUTF8"] = "1";
-        _process = Process.Start(info) ?? throw new InvalidOperationException("The local speech component could not start.");
+        try
+        {
+            _process = Process.Start(info) ?? throw new InvalidOperationException("The local speech component could not start.");
+        }
+        catch (Exception exc)
+        {
+            AppStartup.Note("speech-worker", "start-failed", exc.GetType().Name);
+            throw new InvalidOperationException("The local speech component could not start. A missing Windows component or security software is the usual cause.");
+        }
+        if (!_notedStart)
+        {
+            _notedStart = true;
+            AppStartup.Note("speech-worker", "started", ResolvedFrom);
+        }
         // Drain diagnostics without persisting or displaying learner text/audio.
         _process.ErrorDataReceived += (_, _) => { };
         _process.BeginErrorReadLine();
@@ -73,6 +127,7 @@ public sealed class SpeechWorkerClient : IDisposable
         {
             StopProcess();
             if (ct.IsCancellationRequested) throw;
+            AppStartup.Note("speech-worker", "timeout", operation);
             throw new TimeoutException("The local speech component took too long. Try again or use typing.");
         }
         catch (JsonException)
