@@ -92,11 +92,10 @@ If a late *verification* step fails after the installer was already compiled, th
 ```powershell
 git clone https://github.com/AmireNuradil/english.git
 cd english
-$env:RUNNER_TEMP = "$PWD\out\tmp"; New-Item -ItemType Directory -Force $env:RUNNER_TEMP | Out-Null
 .\build\windows.ps1
 ```
 
-Prerequisites the script expects to find: Windows x64, `py -3.11` (Python 3.11 64-bit), Visual Studio C++ tools with CMake (for the eSpeak build) and .NET 10 (installed automatically if absent). It downloads about 500 MB of models. Your file ends up at `out\release\SPEAKCITY-AI-Setup-x64.exe` - on your own machine the final GitHub-publishing step is recognised as unavailable and skipped, so the run finishes cleanly.
+Prerequisites the script discovers on its own: Windows x64, Python 3.11 64-bit (via SPEAKCITY_PYTHON, the py -3.11 launcher, the registry, or PATH), Visual Studio C++ tools with CMake (for the eSpeak build) and .NET 10 x64 (via SPEAKCITY_DOTNET, PATH, DOTNET_ROOT, or an automatic install into the portable scratch directory RUNNER_TEMP -> TEMP -> out/tmp). It downloads about 500 MB of models. Your file ends up at `out\release\SPEAKCITY-AI-Setup-x64.exe` - on your own machine the final GitHub-publishing step is recognised as unavailable and skipped, so the run finishes cleanly.
 
 Either way: the build is **unsigned**, so SmartScreen will warn the first time - and the first launch asks for an API base URL, model ID and key in *Configure AI*. There is no built-in key and no scripted fallback conversation.
 

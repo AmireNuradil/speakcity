@@ -45,6 +45,11 @@ function Publish-BuildRelease([string]$Tag, [string]$Title, [string]$Notes, [obj
 }
 
 try {
+  $stage = 'build-temp'
+  $buildTemp = $env:RUNNER_TEMP
+  if ([string]::IsNullOrWhiteSpace($buildTemp)) { $buildTemp = $env:TEMP }
+  if ([string]::IsNullOrWhiteSpace($buildTemp)) { $buildTemp = Join-Path $root 'out/tmp' }
+  New-Item -ItemType Directory -Force $buildTemp | Out-Null
   $stage = 'decode-assets'
   $manifest = Get-Content assets-source/manifest.json -Raw | ConvertFrom-Json
   foreach ($asset in $manifest) {
@@ -54,31 +59,73 @@ try {
     if ((Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant() -ne $asset.sha256) { throw "Asset hash mismatch: $($asset.output)" }
   }
   $stage = 'dotnet-sdk'
-  $dotnet = (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue).Source
+  # Portable .NET 10 discovery: explicit SPEAKCITY_DOTNET override, then
+  # dotnet.exe from PATH, then DOTNET_ROOT, then a machine-local SDK install
+  # into the portable scratch directory. No personal hard-coded path.
+  $dotnetCandidates = @()
+  if (-not [string]::IsNullOrWhiteSpace($env:SPEAKCITY_DOTNET)) { $dotnetCandidates += $env:SPEAKCITY_DOTNET }
+  $pathDotnet = (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue).Source
+  if ($pathDotnet) { $dotnetCandidates += $pathDotnet }
+  if (-not [string]::IsNullOrWhiteSpace($env:DOTNET_ROOT)) {
+    $dotnetCandidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe')
+  }
+  $dotnet = $dotnetCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
   if (-not $dotnet) {
-    $dotnet = 'C:\Users\Acer\dotnet10\dotnet.exe'
+    # Documented fallback: install the pinned SDK into the portable scratch
+    # directory (RUNNER_TEMP -> TEMP -> out/tmp), never a personal folder.
+    $dotnetDir = Join-Path $buildTemp 'dotnet10'
+    $dotnet = Join-Path $dotnetDir 'dotnet.exe'
   }
-  if (-not (Test-Path $dotnet)) { throw '.NET 10 SDK was not found on the Windows build runner.' }
-  $sdks = @(& $dotnet --list-sdks)
-  if (-not ($sdks -match '^10\.0\.')) {
-    $script = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+  if (-not (Test-Path $dotnet)) {
+    $dotnetDir = Split-Path $dotnet -Parent
+    $script = Join-Path $buildTemp 'dotnet-install.ps1'
     Invoke-WebRequest 'https://raw.githubusercontent.com/dotnet/install-scripts/47940ac9fc30a2f2dd19167165d0bb0774625f67/src/dotnet-install.ps1' -OutFile $script
-    & $script -Version '10.0.401' -InstallDir (Join-Path $env:RUNNER_TEMP 'dotnet10') -NoPath
-    $env:PATH = (Join-Path $env:RUNNER_TEMP 'dotnet10') + ';' + $env:PATH
+    & $script -Version '10.0.401' -InstallDir $dotnetDir -NoPath
+    Assert-Exit 'Install .NET 10 SDK'
+    $env:PATH = $dotnetDir + ';' + $env:PATH
+    $env:DOTNET_ROOT = $dotnetDir
   }
+  if (-not (Test-Path $dotnet)) { throw '.NET 10 SDK was not found. Install the .NET 10 x64 SDK or set SPEAKCITY_DOTNET to dotnet.exe.' }
+  $dotnetVersion = (& $dotnet --version).Trim()
+  if ($dotnetVersion -notmatch '^10\.0\.') { throw ".NET 10 SDK is required, but '$dotnet' reports version '$dotnetVersion'." }
+  $dotnetInfo = & $dotnet --info
+  if ($dotnetInfo -notmatch 'Architecture:\s*x64' -and $dotnetInfo -notmatch 'RID:\s*win-x64') {
+    throw ".NET host '$dotnet' does not report an x64 runtime ($dotnetVersion). Install the x64 .NET 10 SDK." }
+  $env:DOTNET_ROOT = Split-Path $dotnet -Parent
   & $dotnet --info | Out-File out/reports/dotnet.txt
   $stage = 'speech-environment'
+  # Portable Python 3.11 x64 discovery: explicit SPEAKCITY_PYTHON override,
+  # then the Python launcher (py.exe -3.11), then the Windows registry
+  # (HKCU/HKLM), then PATH (python.exe / python3.11.exe).
   $python = $null
-$pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
-if ($pyLauncher) {
-  $python = (& py.exe -3.11 -c 'import sys; print(sys.executable)').Trim()
-} else {
-  $python = (Get-ItemProperty 'HKCU:\Software\Python\PythonCore\3.11\InstallPath' -ErrorAction SilentlyContinue).ExecutablePath
-  if (-not $python) {
+  if (-not [string]::IsNullOrWhiteSpace($env:SPEAKCITY_PYTHON)) { $python = $env:SPEAKCITY_PYTHON }
+  if (-not ($python -and (Test-Path $python))) {
+    $pyLauncher = Get-Command py.exe -CommandType Application -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+      try {
+        $probe = (& py.exe -3.11 -c 'import sys; print(sys.executable)' 2>$null).Trim()
+        if ($probe -and (Test-Path $probe)) { $python = $probe }
+      } catch { $python = $null }
+    }
+  }
+  if (-not ($python -and (Test-Path $python))) {
+    $python = (Get-ItemProperty 'HKCU:\Software\Python\PythonCore\3.11\InstallPath' -ErrorAction SilentlyContinue).ExecutablePath
+  }
+  if (-not ($python -and (Test-Path $python))) {
     $python = (Get-ItemProperty 'HKLM:\Software\Python\PythonCore\3.11\InstallPath' -ErrorAction SilentlyContinue).ExecutablePath
   }
-}
-  if (-not (Test-Path $python)) { throw 'Python 3.11 x64 was not found on the Windows build runner.' }
+  if (-not ($python -and (Test-Path $python))) {
+    foreach ($name in @('python3.11.exe', 'python.exe')) {
+      $found = (Get-Command $name -CommandType Application -ErrorAction SilentlyContinue).Source
+      if ($found -and (Test-Path $found)) { $python = $found; break }
+    }
+  }
+  if (-not ($python -and (Test-Path $python))) { throw 'Python 3.11 x64 was not found. Install Python 3.11 64-bit or set SPEAKCITY_PYTHON to python.exe.' }
+  $pythonProbe = @(& $python -c 'import sys,platform,struct; print(str(sys.version_info[0]) + "." + str(sys.version_info[1])); print(platform.machine()); print(struct.calcsize("P") * 8)')
+  Assert-Exit 'Verify Python version'
+  if ($pythonProbe[0].Trim() -ne '3.11') { throw "Python 3.11 is required, but '$python' reports version '$($pythonProbe[0].Trim())'." }
+  if ($pythonProbe[1].Trim().ToLowerInvariant() -notin @('amd64', 'x86_64') -or $pythonProbe[2].Trim() -ne '64') {
+    throw "Python 3.11 x64 is required, but '$python' reports '$($pythonProbe[1].Trim())' / $($pythonProbe[2].Trim())-bit." }
   & $python -m venv out/venv
   Assert-Exit 'Create build environment'
   $buildPython = Join-Path $root 'out/venv/Scripts/python.exe'
@@ -117,9 +164,9 @@ if ($pyLauncher) {
   & $buildPython build/collect_notices.py --output out/app/third-party-notices --sources out/third-party-source 2>&1 | Tee-Object out/reports/notices.log
   Assert-Exit 'Collect bundled component notices and source'
   $stage = 'installer-tools'
-  $innoSetup = Join-Path $env:RUNNER_TEMP 'innosetup-6.4.3.exe'
+  $innoSetup = Join-Path $buildTemp 'innosetup-6.4.3.exe'
   Download-Checked 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' $innoSetup 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b'
-  $inno = Join-Path $env:RUNNER_TEMP 'inno'
+  $inno = Join-Path $buildTemp 'inno'
   $installCompiler = Start-Process $innoSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$inno`"") -Wait -PassThru
   if ($installCompiler.ExitCode -ne 0) { throw 'Installer compiler setup failed.' }
   $webview = Join-Path $root 'out/bootstrap/MicrosoftEdgeWebview2Setup.exe'
@@ -131,7 +178,7 @@ if ($pyLauncher) {
   Assert-Exit 'Compile installer'
   $installer = Join-Path $root 'out/release/SPEAKCITY-AI-Setup-x64.exe'
   $stage = 'installer-test'
-  $installDir = Join-Path $env:RUNNER_TEMP 'SpeakCity Test'
+  $installDir = Join-Path $buildTemp 'SpeakCity Test'
   $install = Start-Process $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$installDir`"") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw "Installer test failed: $($install.ExitCode)" }
   $installedReport = Join-Path $root 'out/reports/installed-self-test.json'
