@@ -88,8 +88,10 @@ try {
   if (-not (Test-Path $dotnet)) { throw '.NET 10 SDK was not found. Install the .NET 10 x64 SDK or set SPEAKCITY_DOTNET to dotnet.exe.' }
   $dotnetVersion = (& $dotnet --version).Trim()
   if ($dotnetVersion -notmatch '^10\.0\.') { throw ".NET 10 SDK is required, but '$dotnet' reports version '$dotnetVersion'." }
-  $dotnetInfo = & $dotnet --info
-  if ($dotnetInfo -notmatch 'Architecture:\s*x64' -and $dotnetInfo -notmatch 'RID:\s*win-x64') {
+  # NOTE: dotnet --info returns an array of lines. -notmatch on an array would
+  # return all non-matching lines (always truthy), so join it into one string.
+  $dotnetInfoText = (& $dotnet --info | Out-String)
+  if ($dotnetInfoText -notmatch 'Architecture:\s*x64' -and $dotnetInfoText -notmatch 'RID:\s*win-x64') {
     throw ".NET host '$dotnet' does not report an x64 runtime ($dotnetVersion). Install the x64 .NET 10 SDK." }
   $env:DOTNET_ROOT = Split-Path $dotnet -Parent
   & $dotnet --info | Out-File out/reports/dotnet.txt
