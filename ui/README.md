@@ -1,6 +1,6 @@
 # SPEAKCITY desktop UI
 
-Standalone, dependency-free UI for the Windows shell's secure virtual origin, `https://speakcity.local/`. The shell maps this directory directly. No server, external script, provider SDK, browser installation flow, or Node integration is required at runtime.
+Standalone, dependency-free UI for the Windows shell's secure virtual origin, `https://speakcity.local/`. The shell maps this directory directly. No server, external script, provider SDK, browser installation flow, or Node integration is required at runtime. Since the native WPF window became the default interface, this HTML UI is the optional `SpeakCity.exe --webview` window; it is still packaged and still mapped by the shell.
 
 ## Files
 

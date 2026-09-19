@@ -4,7 +4,7 @@ Windows 11 x64 desktop application with all eight research-paper scenarios. Loca
 
 ## Starting
 
-Install using the Windows installer, then open SPEAKCITY from the Start menu. No Python installation, command prompt, Railway, PWA or local web server is required. The native window displays packaged app screens using Microsoft's WebView2 runtime. Windows 11 normally includes it; the installer offers the official Microsoft prerequisite if missing.
+Install using the Windows installer, then open SPEAKCITY from the Start menu. No Python installation, command prompt, Railway, PWA or local web server is required. The default window is native WPF and needs no browser component. The optional WebView2 window (`SpeakCity.exe --webview`) still displays the packaged app screens using Microsoft's WebView2 runtime, which Windows 11 normally includes and which the installer offers as the official Microsoft prerequisite if it is missing.
 
 If the window stays on "Opening SPEAKCITY...", it is no longer silent about why. Interface start-up is bounded: 20 seconds for the browser component and 30 for the page bridge. A browser profile folder that security software has locked is retried once in a temporary location, and anything that still fails is written in the window as an instruction you can act on, with a Try again button - never as a modal dialog that no one can see. The last start is also recorded in `%LOCALAPPDATA%\SpeakCity\startup.json` (stage names, timings and folder paths only: no conversations, no recordings, no keys). To check an install completely:
 

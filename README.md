@@ -17,9 +17,12 @@ A Windows 11 app for practising **spoken English** in eight everyday places. Luc
 ## Where everything lives
 
 ```
-english/
-├── src/SpeakCity/          the Windows app itself (C#, WPF + WebView2)
-│   ├── MainWindow.cs           window, WebView2 host, microphone permission, --ui-smoke
+speakcity/
+├── src/SpeakCity/          the Windows app itself (C#, WPF; native window by default)
+│   ├── NativeMainWindow.cs     the default window: scenarios, chat, mic toggle, voice (no browser)
+│   ├── WavRecorder.cs          microphone capture through Windows MCI, 16 kHz mono PCM WAV
+│   ├── NativeSmoke.cs          headless --ui-smoke of the native path (real router, real voice)
+│   ├── MainWindow.cs           the optional WebView2 window (SpeakCity.exe --webview) and --diagnose
 │   ├── AppRouter.cs            the /api/* routes the UI talks to (in-memory sessions)
 │   ├── ApiClient.cs            talks to your configured AI provider
 │   ├── ApiConfig.cs            validates + encrypts that provider setting (per Windows user)
@@ -58,7 +61,7 @@ english/
 | The exact `/api/*` request and response shapes | [ui/README.md](ui/README.md) | `src/SpeakCity/AppRouter.cs` |
 | The speech worker protocol, limits, error codes | [speech/README.md](speech/README.md) | `speech/worker.py` |
 | Licences, GPL obligations, the source companion | [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) | `build/collect_notices.py` |
-| Why the last build passed or failed | [Actions runs](https://github.com/AmireNuradil/english/actions) | `.build/desktop-build.json` (stage + logs tail) |
+| Why the last build passed or failed | [Actions runs](https://github.com/AmireNuradil/speakcity/actions) | `.build/desktop-build.json` (stage + logs tail) |
 | What the packaged self-test actually proved | `.build/windows-self-test.json` | `src/SpeakCity/SelfTests.cs` |
 | Which model files are downloaded, and their hashes | `speech/assets-manifest.json` | `speech/download_assets.py` |
 | Where a user's API key is stored | `src/SpeakCity/ApiConfig.cs` | `%LOCALAPPDATA%\SpeakCity\api-settings.bin`, DPAPI, current Windows user |
@@ -70,9 +73,9 @@ The app is **built but not yet released**. Concretely:
 
 - ✅ Everything up to and including the packaged self-test passes on the Windows build runner: the C# app compiles, eSpeak NG is built from pinned source, the speech worker freezes, Kokoro speaks, Whisper transcribes, and all eight scenarios pass the conversation/feedback/vocabulary checks.
 - ✅ The blocker that stopped packaging for a while (a false "licence file missing" report for `setuptools`) is fixed in `build/collect_notices.py`, with `tests/notice_collection_test.py` pinning both the false positive and the fail-closed case.
-- ⚠️ No installer has been published from a fully green run yet, so the [Releases page](https://github.com/AmireNuradil/english/releases) is still empty. If it stays empty, that means "not built yet" - not "lost".
-- ⏳ Still genuinely unproven, and nobody should claim otherwise: a real AI provider call, a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone and no desktop to paint a window on - so the packaged UI check reports `skipped (non-interactive-session)` rather than pretending.
-- ✅ A start that cannot finish no longer hangs: the interface start-up is bounded, retries a locked browser profile once in a temporary folder, and shows what to do instead of sitting on "Opening SPEAKCITY...". `%LOCALAPPDATA%\SpeakCity\startup.json` and `SpeakCity.exe --diagnose <file>` exist so "it does not open" can be answered with facts.
+- ⚠️ No installer has been published from a fully green run yet, so the [Releases page](https://github.com/AmireNuradil/speakcity/releases) is still empty. If it stays empty, that means "not built yet" - not "lost".
+- ⏳ Still genuinely unproven, and nobody should claim otherwise: a real AI provider call, a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone; the packaged `--ui-smoke` check drives the native path headlessly (real router, real bundled Kokoro voice, scripted AI completion), and it is the optional WebView2 window that reports `skipped (non-interactive-session)` on an agent with no desktop to paint on.
+- ✅ The default window is native WPF and needs no browser component; the WebView2 interface is still available with `SpeakCity.exe --webview` for comparison. A start that cannot finish no longer hangs: the WebView2 path bounds its start-up, retries a locked profile once in a temporary folder, and shows what to do instead of sitting on "Opening SPEAKCITY...". `%LOCALAPPDATA%\SpeakCity\startup.json` and `SpeakCity.exe --diagnose <file>` exist so "it does not open" can be answered with facts.
 
 ## Getting the installer
 
@@ -81,8 +84,8 @@ The app is **built but not yet released**. Concretely:
 The workflow runs on every push to `main` (`.github/workflows/windows-desktop.yml`). One run is roughly 10–20 minutes and, at the end, attaches `SPEAKCITY-AI-Setup-x64.exe`, the source archive and the third-party source archive to a private release.
 
 ```bash
-gh run list --repo AmireNuradil/english --workflow windows-desktop.yml --limit 5   # watch it
-gh release download --repo AmireNuradil/english --pattern "*.exe"                  # fetch it
+gh run list --repo AmireNuradil/speakcity --workflow windows-desktop.yml --limit 5  # watch it
+gh release download --repo AmireNuradil/speakcity --pattern "*.exe"                 # fetch it
 ```
 
 If a late *verification* step fails after the installer was already compiled, that installer is still published as a prerelease titled `…AUTOMATED VERIFICATION INCOMPLETE`, together with the build reports - so a near miss never throws a usable build away.
@@ -90,8 +93,8 @@ If a late *verification* step fails after the installer was already compiled, th
 ### Route B — build it yourself on a Windows 11 PC
 
 ```powershell
-git clone https://github.com/AmireNuradil/english.git
-cd english
+git clone https://github.com/AmireNuradil/speakcity.git
+cd speakcity
 .\build\windows.ps1
 ```
 
