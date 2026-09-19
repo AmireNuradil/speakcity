@@ -18,7 +18,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - name: Check out the private project
+      - name: Check out the project
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
@@ -38,7 +38,7 @@ jobs:
             python --version
           }
 
-      - name: Record build status in the private repository
+      - name: Record build status in the repository
         if: always()
         shell: pwsh
         env:

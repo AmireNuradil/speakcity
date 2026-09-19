@@ -81,7 +81,10 @@ try {
     $script = Join-Path $buildTemp 'dotnet-install.ps1'
     Invoke-WebRequest 'https://raw.githubusercontent.com/dotnet/install-scripts/47940ac9fc30a2f2dd19167165d0bb0774625f67/src/dotnet-install.ps1' -OutFile $script
     & $script -Version '10.0.401' -InstallDir $dotnetDir -NoPath
-    Assert-Exit 'Install .NET 10 SDK'
+    # dotnet-install.ps1 is a PowerShell script, not a native command, so
+    # $LASTEXITCODE is left over from unrelated native helpers inside it and
+    # says nothing about the install. Judge it by what it produced instead:
+    # the Test-Path check below, then the version and architecture checks.
     $env:PATH = $dotnetDir + ';' + $env:PATH
     $env:DOTNET_ROOT = $dotnetDir
   }
@@ -217,9 +220,19 @@ try {
     throw "Native WebView2 UI smoke test failed (exit $uiExit): $($ui.error)"
   }
   $stage = 'private-release'
-  # Publishing needs a token and a repository. On a developer PC the build simply
-  # stops once the files exist, and that is a completed build, not a failure.
+  # Publishing needs a token, a repository, and a repository that is actually
+  # private. The release carries an unsigned installer, and the download pointers
+  # recorded below are temporary signed URLs: neither may be handed to the public.
+  # A public repository therefore skips publishing and keeps its files under
+  # out/release; that is a completed build, not a failure.
+  $repoPrivate = $false
   if ([bool]$env:GH_TOKEN -and [bool]$env:GITHUB_REPOSITORY) {
+    try {
+      $repoPrivate = ((Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }).private) -eq $true
+    } catch { $repoPrivate = $false }
+  }
+  $detail.repository_private = $repoPrivate
+  if ([bool]$env:GH_TOKEN -and [bool]$env:GITHUB_REPOSITORY -and $repoPrivate) {
     $sourceZip = Join-Path $root 'out/release/SPEAKCITY-AI-source.zip'
     git archive -o $sourceZip HEAD
     Assert-Exit 'Archive source'
@@ -229,8 +242,9 @@ try {
     $published = Publish-BuildRelease $tag 'SPEAKCITY Windows desktop candidate' ("Private unsigned Windows x64 build. Local speech bundled; configure an eligible AI API in the native settings screen. Windows Server packaged tests are included; real provider and physical Windows 11 microphone tests remain pending. Interactive UI check on this build agent: $uiNote.") @($installer, $sourceZip, (Join-Path $root 'out/release/SPEAKCITY-third-party-source.zip'), (Join-Path $root 'out/reports/native-ui.png'))
     if (-not $published) { throw 'Create private release' }
     $detail.release_tag = $tag
-    # Temporary GitHub-provided download redirects, stored only in this private repo.
-    # Never store or print GH_TOKEN. These URLs are file-specific and expire.
+    # Temporary GitHub-provided download redirects, recorded only because the
+    # repository was verified private above. Never store or print GH_TOKEN.
+    # These URLs are file-specific and expire.
     $release = (gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$tag" | ConvertFrom-Json)
     $handler = [System.Net.Http.HttpClientHandler]::new(); $handler.AllowAutoRedirect = $false
     $http = [System.Net.Http.HttpClient]::new($handler)
@@ -248,6 +262,8 @@ try {
       }
     } finally { $http.Dispose() }
     Put-PrivateReport '.build/downloads.json' @{ release_tag = $tag; files = $downloads; note = 'Private temporary download pointers; not credentials or a public repository.' }
+  } elseif ([bool]$env:GH_TOKEN -and [bool]$env:GITHUB_REPOSITORY) {
+    Write-Output 'GitHub publishing skipped: the repository is public, so an unsigned installer and its temporary signed download links are not published. Make the repository private to publish a release; the built files remain under out/release.'
   } else {
     Write-Output 'GitHub publishing skipped (no GH_TOKEN/GITHUB_REPOSITORY); built files remain under out/release.'
   }

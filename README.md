@@ -81,7 +81,7 @@ The app is **built but not yet released**. Concretely:
 
 ### Route A — let GitHub build it (the normal way)
 
-The workflow runs on every push to `main` (`.github/workflows/windows-desktop.yml`). One run is roughly 10–20 minutes and, at the end, attaches `SPEAKCITY-AI-Setup-x64.exe`, the source archive and the third-party source archive to a private release.
+The workflow runs on every push to `main` (`.github/workflows/windows-desktop.yml`). One run is roughly 10–20 minutes and, at the end, attaches `SPEAKCITY-AI-Setup-x64.exe`, the source archive and the third-party source archive to a private release. Publishing requires the repository to actually be private: on a public repository the run still builds and verifies everything, then leaves the installer under `out/release` rather than publishing an unsigned installer together with its temporary signed download links.
 
 ```bash
 gh run list --repo AmireNuradil/speakcity --workflow windows-desktop.yml --limit 5  # watch it
