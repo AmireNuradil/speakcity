@@ -171,7 +171,10 @@ public sealed class AppRouter : IDisposable
             "Return a JSON object with one property: reply (string).";
         var history = new List<(string Role, string Content)>(session.Messages) { ("user", text) };
         var result = await CompleteAsync(prompt, history, 220, ct);
-        string reply = RequiredString(result, "reply", 900).Trim();
+        if (result["reply"] is not JsonValue replyValue || !replyValue.TryGetValue<string>(out var replyText) ||
+            string.IsNullOrWhiteSpace(replyText) || replyText.Length > 900)
+            throw new InvalidOperationException("The AI did not return a usable reply. Check the model in API settings, then try again.");
+        string reply = replyText.Trim();
         history.Add(("assistant", reply));
         session.Messages = history;
         var payload = new JsonObject { ["reply"] = reply, ["turn_count"] = count + 1, ["at_limit"] = count + 1 >= MaxTurns };

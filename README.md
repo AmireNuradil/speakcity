@@ -74,7 +74,8 @@ The app is **built but not yet released**. Concretely:
 - ✅ Everything up to and including the packaged self-test passes on the Windows build runner: the C# app compiles, eSpeak NG is built from pinned source, the speech worker freezes, Kokoro speaks, Whisper transcribes, and all eight scenarios pass the conversation/feedback/vocabulary checks.
 - ✅ The blocker that stopped packaging for a while (a false "licence file missing" report for `setuptools`) is fixed in `build/collect_notices.py`, with `tests/notice_collection_test.py` pinning both the false positive and the fail-closed case.
 - ⚠️ No installer has been published from a fully green run yet, so the [Releases page](https://github.com/AmireNuradil/speakcity/releases) is still empty. If it stays empty, that means "not built yet" - not "lost".
-- ⏳ Still genuinely unproven, and nobody should claim otherwise: a real AI provider call, a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone; the packaged `--ui-smoke` check drives the native path headlessly (real router, real bundled Kokoro voice, scripted AI completion), and it is the optional WebView2 window that reports `skipped (non-interactive-session)` on an agent with no desktop to paint on.
+- ⏳ Still genuinely unproven, and nobody should claim otherwise: a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone; the packaged `--ui-smoke` check drives the native path headlessly (real router, real bundled Kokoro voice, scripted AI completion), and it is the optional WebView2 window that reports `skipped (non-interactive-session)` on an agent with no desktop to paint on.
+- ✅ A live AI provider call is verified on a real Windows 11 PC through the app's own `ApiClient` and the saved DPAPI configuration: the connection test, a conversation turn and the end-of-run corrections all returned usable JSON. It stays a manual check rather than a build gate because it needs owner-supplied credentials.
 - ✅ The default window is native WPF and needs no browser component; the WebView2 interface is still available with `SpeakCity.exe --webview` for comparison. A start that cannot finish no longer hangs: the WebView2 path bounds its start-up, retries a locked profile once in a temporary folder, and shows what to do instead of sitting on "Opening SPEAKCITY...". `%LOCALAPPDATA%\SpeakCity\startup.json` and `SpeakCity.exe --diagnose <file>` exist so "it does not open" can be answered with facts.
 
 ## Getting the installer
@@ -101,6 +102,12 @@ cd speakcity
 Prerequisites the script discovers on its own: Windows x64, Python 3.11 64-bit (via SPEAKCITY_PYTHON, the py -3.11 launcher, the registry, or PATH), Visual Studio C++ tools with CMake (for the eSpeak build) and .NET 10 x64 (via SPEAKCITY_DOTNET, PATH, DOTNET_ROOT, or an automatic install into the portable scratch directory RUNNER_TEMP -> TEMP -> out/tmp). It downloads about 500 MB of models. Your file ends up at `out\release\SPEAKCITY-AI-Setup-x64.exe` - on your own machine the final GitHub-publishing step is recognised as unavailable and skipped, so the run finishes cleanly.
 
 Either way: the build is **unsigned**, so SmartScreen will warn the first time - and the first launch asks for an API base URL, model ID and key in *Configure AI*. There is no built-in key and no scripted fallback conversation.
+
+### Choosing a model that works
+
+The conversation and the end-of-run corrections both need the model to answer with a JSON object (`{"reply": "..."}`, and `{"corrections": [...]}` for feedback). A model that answers with plain prose fails with *"The provider returned malformed JSON"* - nothing else in the app is wrong at that point.
+
+Verified against OpenRouter with a free-tier key, using the app's exact request shape: `nex-agi/nex-n2.5-pro:free` answered 3/3 turns and 8/8 feedback replies. Rejected in the same probe: `openrouter/free` and `openrouter/auto` (auto-routers - one request was routed to a content-safety classifier that answered `User Safety: safe`), `nvidia/nemotron-3-super-120b-a12b:free` (0/3, answered `{}`), `google/gemma-4-31b-it:free` and `google/gemma-4-26b-a4b-it:free` (HTTP 429), `liquid/lfm-2.5-2.6b:free` (leaks `<|tool_call_start|>` syntax into the reply), and `dots-studio/dots-3-note-preview:free` (1/3, empty content once its reasoning budget ran out).
 
 ## Checks you can run without building anything
 

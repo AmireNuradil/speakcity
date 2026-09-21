@@ -23,6 +23,7 @@ public sealed class ApiClient
     private const int MaxRequestBytes = 1024 * 1024;
     private const int MaxHistoryMessages = 256;
     private const int MaxPromptCharacters = 256 * 1024;
+    private const string AmbiguousReplyMessage = "The provider returned ambiguous JSON with duplicate property names. Try again.";
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(90);
     private static readonly JsonDocumentOptions JsonOptions = new()
     {
@@ -100,9 +101,18 @@ public sealed class ApiClient
                         throw CreateStatusException(response.StatusCode);
                     }
 
-                    var result = ParseCompletion(responseBytes);
-                    requestToken.ThrowIfCancellationRequested();
-                    return result;
+                    try
+                    {
+                        var result = ParseCompletion(responseBytes);
+                        requestToken.ThrowIfCancellationRequested();
+                        return result;
+                    }
+                    catch (InvalidOperationException error) when (attempt == 0 && IsRetryableReply(error))
+                    {
+                        // A duplicated property name is a sampling accident at the provider rather
+                        // than a settings problem, and one clean retry resolves it.
+                        continue;
+                    }
                 }
                 finally
                 {
@@ -140,7 +150,7 @@ public sealed class ApiClient
         catch (JsonException)
         {
             // JsonException messages can contain provider-controlled text. Never surface them.
-            throw new InvalidOperationException("The provider returned malformed JSON. Check that the endpoint and model support chat completions with JSON output.");
+            throw new InvalidOperationException("The provider returned malformed JSON. Check that the endpoint and model support chat completions with JSON output. If the model ID is an auto-router (for example openrouter/free), choose a specific model instead.");
         }
         finally
         {
@@ -157,7 +167,9 @@ public sealed class ApiClient
         var response = await CompleteJsonAsync(
             "This is a connection test. Return only this JSON object: {\"ok\":true}.",
             new (string Role, string Content)[] { ("user", "Connection test. Reply with the requested JSON object only.") },
-            maxTokens: 32,
+            // Reasoning-capable models spend part of the budget before the visible answer,
+            // so a tiny probe budget failed on models that answer fine during a conversation.
+            maxTokens: 128,
             ct).ConfigureAwait(false);
         if (response.Count != 1 || response["ok"] is not JsonValue value ||
             !value.TryGetValue<bool>(out var ok) || !ok)
@@ -416,7 +428,7 @@ public sealed class ApiClient
             foreach (var property in element.EnumerateObject())
             {
                 if (!names.Add(property.Name))
-                    throw new InvalidOperationException("The provider returned ambiguous JSON with duplicate property names. Try again.");
+                    throw new InvalidOperationException(AmbiguousReplyMessage);
                 RejectDuplicateProperties(property.Value);
             }
         }
@@ -428,7 +440,10 @@ public sealed class ApiClient
     }
 
     private static InvalidOperationException InvalidReply() => new(
-        "The provider did not return a complete chat-completions JSON reply. Check that the configured endpoint and model support JSON objects; no substitute reply was generated.");
+        "The provider did not return a complete chat-completions JSON reply. Check that the configured endpoint and model support JSON objects. If the model ID is an auto-router (for example openrouter/free), choose a specific model instead. No substitute reply was generated.");
+
+    private static bool IsRetryableReply(InvalidOperationException error) =>
+        string.Equals(error.Message, AmbiguousReplyMessage, StringComparison.Ordinal);
 
     private static Exception CreateStatusException(HttpStatusCode code) => (int)code switch
     {
