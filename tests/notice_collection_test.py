@@ -19,10 +19,13 @@ from __future__ import annotations
 from email import message_from_string
 import importlib.util
 from pathlib import Path
+import socket
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -149,6 +152,72 @@ class DeclaredLicenceTests(unittest.TestCase):
         self.assertTrue(collect.is_notice("setuptools-84.0.0.dist-info/licenses/LICENSE"))
         self.assertTrue(collect.is_notice("setuptools/config/_validate_pyproject/NOTICE"))
         self.assertFalse(collect.is_notice("setuptools/config/setup.py"))
+
+
+class FetchRetryTests(unittest.TestCase):
+    """The download retries may only absorb transport flakes, never soften a gate.
+
+    A dropped connection used to lose a whole build, so ``fetch`` now makes bounded
+    attempts. These tests pin the boundary: a transient socket failure is retried and
+    can still succeed, while a policy decision (allowlist, size, digest) and a final
+    give-up must raise immediately.
+    """
+
+    def setUp(self) -> None:
+        self.slept: list[float] = []
+        self.calls = 0
+        self.plan: list[object] = []
+        # Patch the collector's own view of time (so backoff is observed, not waited for)
+        # and the single-attempt downloader (so no socket is opened). The real allowlist,
+        # size and digest logic stays untouched and is covered by the gate tests above.
+        fake_time = types.SimpleNamespace(sleep=self.slept.append)
+        for patcher in (
+            mock.patch.object(collect, "time", fake_time),
+            mock.patch.object(collect, "_fetch_once", self.next_step),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def next_step(self, *args, **kwargs):
+        self.calls += 1
+        step = self.plan.pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    def configure(self, plan: list[object]) -> None:
+        self.plan = list(plan)
+
+    def test_transient_socket_failure_is_retried_and_can_still_succeed(self) -> None:
+        self.configure([TimeoutError("read timed out"), socket.timeout("timed out"), b"payload"])
+        self.assertEqual(collect.fetch("https://codeload.github.com/espeak-ng/espeak-ng/tar.gz/x"), b"payload")
+        self.assertEqual(self.calls, 3)
+        # Backoff is exercised, not skipped, and stays bounded.
+        self.assertEqual(self.slept, [collect.FETCH_BACKOFF_SECONDS, collect.FETCH_BACKOFF_SECONDS * 2])
+
+    def test_a_final_transport_failure_reports_attempts_and_the_cause(self) -> None:
+        self.configure([OSError("reset") for _ in range(collect.FETCH_ATTEMPTS)])
+        with self.assertRaises(collect.CollectionError) as caught:
+            collect.fetch("https://codeload.github.com/espeak-ng/espeak-ng/tar.gz/x")
+        self.assertEqual(self.calls, collect.FETCH_ATTEMPTS)
+        self.assertIn(str(collect.FETCH_ATTEMPTS), str(caught.exception))
+
+    def test_policy_failures_are_never_retried(self) -> None:
+        # An allowlist, size or digest decision is a verdict, not a flake: one call only.
+        self.configure([collect.CollectionError("SHA-256 mismatch; refusing changed/unverified artifact")])
+        with self.assertRaises(collect.CollectionError):
+            collect.fetch("https://codeload.github.com/espeak-ng/espeak-ng/tar.gz/x")
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(self.slept, [])
+
+    def test_retries_are_bounded_and_each_attempt_is_a_fresh_download(self) -> None:
+        # Every attempt re-enters the verified path, so a retry can never reuse partial
+        # bytes or skip the digest check that runs inside one attempt.
+        self.configure([urllib.error.URLError("dns") for _ in range(collect.FETCH_ATTEMPTS)])
+        with self.assertRaises(collect.CollectionError):
+            collect.fetch("https://codeload.github.com/espeak-ng/espeak-ng/tar.gz/x")
+        self.assertEqual(self.calls, collect.FETCH_ATTEMPTS)
+        self.assertEqual(len(self.slept), collect.FETCH_ATTEMPTS - 1)
 
 
 if __name__ == "__main__":

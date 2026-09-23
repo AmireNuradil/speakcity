@@ -11,6 +11,7 @@ import argparse
 from datetime import datetime, timezone
 import difflib
 import hashlib
+import http.client
 from importlib import metadata
 import io
 import json
@@ -19,10 +20,12 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 import platform
 import re
 import shutil
+import socket
 import stat
 import struct
 import sys
 import tarfile
+import time
 import urllib.parse
 import urllib.request
 import zipfile
@@ -242,7 +245,36 @@ class CheckedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+# This pipeline pulls roughly half a gigabyte from four different hosts before it can
+# freeze anything, and one dropped connection used to lose a whole ~20-minute build.
+# The retries below cover transport failures only. Every allowlist check, size limit and
+# SHA-256 gate still runs on every attempt and still fails closed, so a retry can never
+# promote an unverified artifact into an accepted one.
+FETCH_ATTEMPTS = 3
+FETCH_BACKOFF_SECONDS = 5
+
+
 def fetch(url: str, expected: str | None = None, *, limit: int = MAX_DOWNLOAD, size: int | None = None) -> bytes:
+    last: Exception | None = None
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            return _fetch_once(url, expected, limit=limit, size=size)
+        except CollectionError:
+            # A policy failure (allowlist, size, digest, HTTP status) is a decision, not a
+            # flake: retrying could only soften it, so it is raised immediately.
+            raise
+        except (TimeoutError, socket.timeout, http.client.HTTPException, ConnectionError, OSError) as error:
+            last = error
+            if attempt == FETCH_ATTEMPTS:
+                break
+            delay = FETCH_BACKOFF_SECONDS * attempt
+            print(f"[fetch] attempt {attempt}/{FETCH_ATTEMPTS} failed ({type(error).__name__}); retrying in {delay}s",
+                  file=sys.stderr, flush=True)
+            time.sleep(delay)
+    raise CollectionError(f"Download failed after {FETCH_ATTEMPTS} attempts ({type(last).__name__})")
+
+
+def _fetch_once(url: str, expected: str | None = None, *, limit: int = MAX_DOWNLOAD, size: int | None = None) -> bytes:
     validate_url(url)
     if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise CollectionError("Missing/invalid expected SHA-256")
