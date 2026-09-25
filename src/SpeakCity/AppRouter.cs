@@ -170,7 +170,9 @@ public sealed class AppRouter : IDisposable
             "Keep the content suitable for learners of all ages. No romantic/sexual interaction, harmful instructions, diagnosis, or requests for real personal/payment data. " +
             "Return a JSON object with one property: reply (string).";
         var history = new List<(string Role, string Content)>(session.Messages) { ("user", text) };
-        var result = await CompleteAsync(prompt, history, 220, ct);
+        // Measured live: a reasoning-capable model spends part of this budget before the visible
+        // reply, so 220 truncated about one turn in three with finish_reason "length".
+        var result = await CompleteAsync(prompt, history, 700, ct);
         if (result["reply"] is not JsonValue replyValue || !replyValue.TryGetValue<string>(out var replyText) ||
             string.IsNullOrWhiteSpace(replyText) || replyText.Length > 900)
             throw new InvalidOperationException("The AI did not return a usable reply. Check the model in API settings, then try again.");
