@@ -22,6 +22,13 @@ function Download-Checked([string]$Url, [string]$Path, [string]$Sha) {
   if ((Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Sha) { throw "Integrity check failed for $(Split-Path $Path -Leaf)" }
 }
 function Assert-Exit([string]$Name) { if ($LASTEXITCODE -ne 0) { throw "$Name returned exit code $LASTEXITCODE" } }
+function Copy-Fresh([string]$Source, [string]$Destination) {
+  # Copy-Item -Recurse aborts with "already exists" when the destination directory is left
+  # over from an earlier run, which used to kill a ~20 minute build on its last stages.
+  if (Test-Path $Destination) { Remove-Item $Destination -Recurse -Force }
+  New-Item -ItemType Directory -Force (Split-Path $Destination -Parent) | Out-Null
+  Copy-Item $Source $Destination -Recurse
+}
 function Publish-BuildRelease([string]$Tag, [string]$Title, [string]$Notes, [object[]]$Assets, [switch]$Prerelease) {
   # Only upload assets this run actually produced: a finished installer must not be
   # lost because an optional file (for example the UI smoke screenshot) was never
@@ -131,6 +138,13 @@ try {
   if ($pythonProbe[0].Trim() -ne '3.11') { throw "Python 3.11 is required, but '$python' reports version '$($pythonProbe[0].Trim())'." }
   if ($pythonProbe[1].Trim().ToLowerInvariant() -notin @('amd64', 'x86_64') -or $pythonProbe[2].Trim() -ne '64') {
     throw "Python 3.11 x64 is required, but '$python' reports '$($pythonProbe[1].Trim())' / $($pythonProbe[2].Trim())-bit." }
+  # The controlled eSpeak build replaces espeakng-loader inside this venv and refuses to
+  # re-stamp a venv it already replaced, so a leftover stamped venv has to be recreated
+  # here instead of failing ten minutes into the run.
+  if (Test-Path out/venv/Lib/site-packages/espeakng_loader/speakcity-native-build.json) {
+    Write-Host 'Build venv already carries a controlled eSpeak build; recreating it.'
+    Remove-Item out/venv -Recurse -Force
+  }
   & $python -m venv out/venv
   Assert-Exit 'Create build environment'
   $buildPython = Join-Path $root 'out/venv/Scripts/python.exe'
@@ -145,8 +159,8 @@ try {
   $stage = 'speech-package'
   & $buildPython -m PyInstaller --noconfirm --clean --distpath out/worker --workpath out/pyinstaller speech/speech_worker.spec 2>&1 | Tee-Object out/reports/pyinstaller.log
   Assert-Exit 'Freeze Windows speech worker'
-  Copy-Item out/worker/speakcity-speech-worker out/app/speech -Recurse
-  Copy-Item out/models out/app/speech/models -Recurse
+  Copy-Fresh out/worker/speakcity-speech-worker out/app/speech/speakcity-speech-worker
+  Copy-Fresh out/models out/app/speech/models
   $stage = 'desktop-compile'
   & $dotnet publish src/SpeakCity/SpeakCity.csproj -c Release -r win-x64 --self-contained true -o out/app 2>&1 | Tee-Object out/reports/dotnet-publish.log
   Assert-Exit 'Compile Windows desktop app'
@@ -165,7 +179,7 @@ try {
   Put-PrivateReport '.build/windows-self-test.json' $selfTests
   if (-not $selfTests.passed) { throw 'Packaged self-test did not pass.' }
   $stage = 'notices-and-sources'
-  Copy-Item docs out/app/docs -Recurse
+  Copy-Fresh docs out/app/docs
   & $buildPython build/collect_notices.py --output out/app/third-party-notices --sources out/third-party-source 2>&1 | Tee-Object out/reports/notices.log
   Assert-Exit 'Collect bundled component notices and source'
   $stage = 'installer-tools'
