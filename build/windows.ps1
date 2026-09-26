@@ -151,6 +151,9 @@ try {
   & $buildPython -m pip install --disable-pip-version-check --only-binary=:all: -r speech/requirements.txt pyinstaller
   Assert-Exit 'Install speech dependencies'
   $stage = 'controlled-native-speech'
+  # The eSpeak driver deliberately refuses to reuse or remove its own output root, so the
+  # previous run's build there is dropped by the orchestrator instead.
+  if (Test-Path out/native-espeak) { Remove-Item out/native-espeak -Recurse -Force }
   & (Join-Path $root 'build/native_espeak.ps1') -PythonPath $buildPython 2>&1 | Tee-Object out/reports/native-espeak.log
   if (-not $?) { throw 'Controlled eSpeak source build failed.' }
   $stage = 'speech-model-download'
