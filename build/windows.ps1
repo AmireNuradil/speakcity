@@ -180,6 +180,12 @@ try {
   if (-not $selfTests.passed) { throw 'Packaged self-test did not pass.' }
   $stage = 'notices-and-sources'
   Copy-Fresh docs out/app/docs
+  # collect_notices refuses to write over output from an earlier run rather than merging into it,
+  # so the generated notices and collected sources from the previous build have to be dropped.
+  foreach ($generated in 'out/app/third-party-notices', 'out/third-party-source') {
+    if (Test-Path $generated) { Remove-Item $generated -Recurse -Force }
+    New-Item -ItemType Directory -Force $generated | Out-Null
+  }
   & $buildPython build/collect_notices.py --output out/app/third-party-notices --sources out/third-party-source 2>&1 | Tee-Object out/reports/notices.log
   Assert-Exit 'Collect bundled component notices and source'
   $stage = 'installer-tools'
