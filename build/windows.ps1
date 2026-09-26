@@ -195,6 +195,9 @@ try {
   $innoSetup = Join-Path $buildTemp 'innosetup-6.4.3.exe'
   Download-Checked 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' $innoSetup 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b'
   $inno = Join-Path $buildTemp 'inno'
+  # Inno's own installer does not behave the same way when a previous build left a compiler
+  # here, and a build must not depend on what an earlier one left in the temporary directory.
+  if (Test-Path $inno) { Remove-Item $inno -Recurse -Force }
   $installCompiler = Start-Process $innoSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$inno`"") -Wait -PassThru
   if ($installCompiler.ExitCode -ne 0) { throw 'Installer compiler setup failed.' }
   $webview = Join-Path $root 'out/bootstrap/MicrosoftEdgeWebview2Setup.exe'
@@ -207,6 +210,10 @@ try {
   $installer = Join-Path $root 'out/release/SPEAKCITY-AI-Setup-x64.exe'
   $stage = 'installer-test'
   $installDir = Join-Path $buildTemp 'SpeakCity Test'
+  # The point of this stage is a clean install, so an earlier run's copy must not be upgraded.
+  # A running instance would also hold the files this cleanup has to delete.
+  Get-Process SpeakCity -ErrorAction SilentlyContinue | Stop-Process -Force
+  if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
   $install = Start-Process $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$installDir`"") -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw "Installer test failed: $($install.ExitCode)" }
   $installedReport = Join-Path $root 'out/reports/installed-self-test.json'
