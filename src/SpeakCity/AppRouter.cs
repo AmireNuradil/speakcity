@@ -80,8 +80,10 @@ public sealed class AppRouter : IDisposable
             {
                 var value = ParseObject(body);
                 string text = RequiredString(value, "text", 1200);
-                string voice = value["voice"]?.GetValue<string>() ?? "american";
-                double speed = value["speed"]?.GetValue<double>() ?? .95;
+                string voice = Text(value["voice"]) ?? "american";
+                double speed = .95;
+                if (value["speed"] is JsonValue speedValue && !speedValue.TryGetValue(out speed))
+                    return AppResponse.Error("invalid_text", 422);
                 if (voice is not ("american" or "british") || speed is < .75 or > 1.2 || double.IsNaN(speed))
                     return AppResponse.Error("invalid_text", 422);
                 var audio = await _speech.RequestAsync("tts", new JsonObject { ["text"] = text, ["voice"] = voice, ["speed"] = speed }, ct);
@@ -101,7 +103,7 @@ public sealed class AppRouter : IDisposable
                 var data = ParseObject(body);
                 string scenario = RequiredString(data, "scenario", 40);
                 if (!_catalog.ContainsKey(scenario)) return AppResponse.Error("Unknown location.", 422);
-                string level = data["level"]?.GetValue<string>() ?? "A2";
+                string level = Text(data["level"]) ?? "A2";
                 if (level is not ("A1" or "A2")) return AppResponse.Error("Invalid practice level.", 422);
                 string opening = _catalog[scenario]!["opening"]!.GetValue<string>();
                 string id = Guid.NewGuid().ToString("N");
@@ -148,6 +150,48 @@ public sealed class AppRouter : IDisposable
         try { return await _complete(prompt, messages, maxTokens, ct); }
         finally { _apiSlot.Release(); }
     }
+
+    /// <summary>
+    /// A null result means the reply is unusable: either the corrections list is missing entirely
+    /// (measured: the provider sometimes answers {"corrections:[{": ""}) or every promised entry
+    /// failed validation. Neither is a learner whose sentences were all acceptable.
+    /// </summary>
+    private static JsonArray? AcceptedCorrections(JsonObject answer, string[] sentences)
+    {
+        if (answer["corrections"] is not JsonArray items) return null;
+        var kept = new JsonArray();
+        var used = new HashSet<string>();
+        foreach (var item in items.Take(3))
+        {
+            if (item is not JsonObject entry) continue;
+            string? original = Text(entry["original"]);
+            string? corrected = Text(entry["corrected"]);
+            if (original is null || corrected is null || corrected.Length > 700 || !sentences.Contains(original) || !used.Add(original)) continue;
+            if (Plain(original) == Plain(corrected)) continue;
+            if (entry["explanation"] is not JsonObject explanation) continue;
+            var safeExplanation = new JsonObject();
+            bool usable = true;
+            foreach (string language in new[] { "en", "kk", "ru" })
+            {
+                string? text = Text(explanation[language]);
+                if (string.IsNullOrWhiteSpace(text)) { usable = false; break; }
+                safeExplanation[language] = text.Length > 600 ? text[..600] : text;
+            }
+            if (usable)
+                kept.Add(new JsonObject { ["original"] = original, ["corrected"] = corrected, ["explanation"] = safeExplanation });
+        }
+        return items.Count > 0 && kept.Count == 0 ? null : kept;
+    }
+
+    /// <summary>
+    /// Reads a JSON value as text or returns null. GetValue&lt;string&gt;() throws on a value of
+    /// another type, which turned a wrongly typed request field into a provider-fault status and
+    /// one oddly typed field in a reply into a lost end-of-run report.
+    /// </summary>
+    private static string? Text(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+    private static string Plain(string text) => Regex.Replace(text.ToLowerInvariant(), @"[^\p{L}\p{N}']", "");
 
     private async Task<AppResponse> TurnAsync(Dialogue session, JsonObject data, CancellationToken ct)
     {
@@ -197,21 +241,19 @@ public sealed class AppRouter : IDisposable
                 "Never invent errors. If all sentences are acceptable, corrections must be empty. Preserve meaning and facts. " +
                 "Copy original exactly from the supplied array. Return only a JSON object: {corrections:[{original:string,corrected:string,explanation:{en:string,kk:string,ru:string}}]}. " +
                 "Explanations must be short, correct, easy to understand, and in English, Kazakh, and Russian respectively.";
-            var answer = await CompleteAsync(prompt, [("user", JsonSerializer.Serialize(sentences))], 1300, ct);
-            if (answer["corrections"] is not JsonArray items) throw new InvalidOperationException("The AI did not return usable feedback. Please retry.");
-            var used = new HashSet<string>();
-            foreach (var item in items.Take(3))
+            var payload = JsonSerializer.Serialize(sentences);
+            var answer = await CompleteAsync(prompt, [("user", payload)], 1300, ct);
+            var accepted = AcceptedCorrections(answer, sentences);
+            if (accepted is null)
             {
-                if (item is not JsonObject entry) continue;
-                string? original = entry["original"]?.GetValue<string>();
-                string? corrected = entry["corrected"]?.GetValue<string>();
-                if (original is null || corrected is null || corrected.Length > 700 || !sentences.Contains(original) || !used.Add(original)) continue;
-                if (Regex.Replace(original.ToLowerInvariant(), @"[^\p{L}\p{N}']", "") == Regex.Replace(corrected.ToLowerInvariant(), @"[^\p{L}\p{N}']", "")) continue;
-                if (entry["explanation"] is not JsonObject explanation || new[] { "en", "kk", "ru" }.Any(k => string.IsNullOrWhiteSpace(explanation[k]?.GetValue<string>()))) continue;
-                var safeExplanation = new JsonObject();
-                foreach (string language in new[] { "en", "kk", "ru" }) safeExplanation[language] = explanation[language]!.GetValue<string>()[..Math.Min(600, explanation[language]!.GetValue<string>().Length)];
-                corrections.Add(new JsonObject { ["original"] = original, ["corrected"] = corrected, ["explanation"] = safeExplanation });
+                // Measured live: this mangling is intermittent and one retry recovered three
+                // of four otherwise lost reports. A reply that does list corrections but where
+                // none survive validation is retried for the same reason; an empty list the
+                // provider genuinely returned stays empty, because that means "nothing to fix".
+                accepted = AcceptedCorrections(await CompleteAsync(prompt, [("user", payload)], 1300, ct), sentences);
+                if (accepted is null) throw new InvalidOperationException("The AI did not return usable feedback. Please retry.");
             }
+            corrections = accepted;
         }
         string fullText = string.Join(" ", session.Messages.Select(m => m.Content));
         var vocabulary = new JsonArray();
@@ -236,9 +278,10 @@ public sealed class AppRouter : IDisposable
     private static JsonObject ParseObject(byte[] data) => JsonNode.Parse(data)?.AsObject() ?? throw new ArgumentException("JSON object required.");
     private static string RequiredString(JsonObject data, string key, int max)
     {
-        string text = data[key]?.GetValue<string>() ?? throw new ArgumentException("Required field missing.");
+        string text = Text(data[key]) ?? throw new ArgumentException("Required field missing.");
         if (string.IsNullOrWhiteSpace(text) || text.Length > max) throw new ArgumentException("Invalid field size.");
         return text;
     }
+
     public void Dispose() => _speech.Dispose();
 }

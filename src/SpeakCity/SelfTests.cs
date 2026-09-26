@@ -94,6 +94,40 @@ public static class SelfTests
                 await Command("DELETE", $"/api/sessions/{sid}");
                 await Command("GET", $"/api/sessions/{sid}", expected: 404);
             }
+            // A provider reply mangled around the corrections key is measured in the field.
+            // It has to cost one retry, not the learner's whole end-of-run report.
+            var usable = new JsonObject { ["corrections"] = new JsonArray(new JsonObject {
+                ["original"] = "I want book a room.", ["corrected"] = "I want to book a room.",
+                ["explanation"] = new JsonObject { ["en"] = "e", ["kk"] = "k", ["ru"] = "r" } }) };
+            var mangled = new JsonObject { ["corrections:[{"] = "" };
+
+            async Task<(int status, int calls, int shown)> FinishRuns(bool alwaysBroken)
+            {
+                int calls = 0;
+                Task<JsonObject> Complete(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
+                {
+                    if (!prompt.Contains("grammar teacher", StringComparison.Ordinal))
+                        return Task.FromResult(new JsonObject { ["reply"] = "Noted. What else?" });
+                    calls++;
+                    return Task.FromResult((alwaysBroken || calls == 1 ? mangled : usable).DeepClone().AsObject());
+                }
+                using var target = new AppRouter(worker, () => Task.FromResult(false), () => config, Complete);
+                var opened = JsonNode.Parse((await target.HandleAsync("POST", "/api/sessions",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "hotel", ["level"] = "A2" }.ToJsonString()))).Body)!;
+                string id = opened["session_id"]!.GetValue<string>();
+                await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
+                    new JsonObject { ["text"] = "I want book a room.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                var finish = await target.HandleAsync("POST", $"/api/sessions/{id}/finish",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()));
+                return (finish.Status, calls, finish.Status == 200
+                    ? JsonNode.Parse(finish.Body)!["corrections"]!.AsArray().Count : -1);
+            }
+
+            var recovered = await FinishRuns(false);
+            Check("Mangled feedback recovers after one retry", recovered.status == 200 && recovered.calls == 2 && recovered.shown == 1);
+            var lost = await FinishRuns(true);
+            Check("Feedback that stays unusable says so instead of passing silently", lost.status == 503 && lost.calls == 2);
+
             report["passed"] = true;
             report["checks"] = JsonSerializer.SerializeToNode(checks);
             report["remaining"] = "Real API-provider calls, Windows 11 physical microphone, interactive WebView2 UI and installer-on-clean-PC verification remain required.";
