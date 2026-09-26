@@ -195,17 +195,27 @@ try {
   $innoSetup = Join-Path $buildTemp 'innosetup-6.4.3.exe'
   Download-Checked 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' $innoSetup 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b'
   $inno = Join-Path $buildTemp 'inno'
-  # Inno's own installer does not behave the same way when a previous build left a compiler
-  # here, and a build must not depend on what an earlier one left in the temporary directory.
-  if (Test-Path $inno) { Remove-Item $inno -Recurse -Force }
-  $installCompiler = Start-Process $innoSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=`"$inno`"") -Wait -PassThru
-  if ($installCompiler.ExitCode -ne 0) { throw 'Installer compiler setup failed.' }
+  # A compiler from an earlier run, or one the owner installed by hand, is fine to use: the pinned
+  # download below only matters when nothing is available. Inno's own installer asks for elevation,
+  # which a detached build can never answer, so when it must install it installs per-user.
+  $compilerPlaces = @((Join-Path $inno 'ISCC.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+    'C:\Program Files (x86)\Inno Setup 6\ISCC.exe', 'C:\Program Files\Inno Setup 6\ISCC.exe')
+  $iscc = @($compilerPlaces | Where-Object { Test-Path $_ }) | Select-Object -First 1
+  if (-not $iscc) {
+    $installCompiler = Start-Process $innoSetup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER') -Wait -PassThru
+    if ($installCompiler.ExitCode -ne 0) {
+      throw "Inno Setup 6.4.3 is needed to compile the installer and the silent per-user install failed (exit code $($installCompiler.ExitCode)). Run '$innoSetup' once and click through it, then repeat this build."
+    }
+    $iscc = @($compilerPlaces | Where-Object { Test-Path $_ }) | Select-Object -First 1
+    if (-not $iscc) { throw 'Inno Setup reported success but no ISCC.exe was found in ' + ($compilerPlaces -join ', ') }
+  }
   $webview = Join-Path $root 'out/bootstrap/MicrosoftEdgeWebview2Setup.exe'
   Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $webview
   $signature = Get-AuthenticodeSignature $webview
   if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') { throw 'Official WebView2 bootstrapper signature verification failed.' }
   $stage = 'installer-compile'
-  & (Join-Path $inno 'ISCC.exe') "/DPayloadDir=$root\out\app" "/DReleaseDir=$root\out\release" "/DBootstrapDir=$root\out\bootstrap" build/installer.iss 2>&1 | Tee-Object out/reports/installer.log
+  & $iscc "/DPayloadDir=$root\out\app" "/DReleaseDir=$root\out\release" "/DBootstrapDir=$root\out\bootstrap" build/installer.iss 2>&1 | Tee-Object out/reports/installer.log
   Assert-Exit 'Compile installer'
   $installer = Join-Path $root 'out/release/SPEAKCITY-AI-Setup-x64.exe'
   $stage = 'installer-test'
@@ -248,6 +258,17 @@ try {
     $detail.ui_smoke = 'passed'
   } else {
     throw "Native WebView2 UI smoke test failed (exit $uiExit): $($ui.error)"
+  }
+  # The test install registered itself as this machine's SPEAKCITY location, which makes a later
+  # real install default into a temporary folder that Windows is free to delete. Once both checks
+  # are done the test copy has to remove itself again.
+  $uninstaller = Join-Path $installDir 'unins000.exe'
+  if (Test-Path $uninstaller) {
+    $remove = Start-Process $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+    Start-Sleep -Seconds 5
+    if ($remove.ExitCode -ne 0 -or (Test-Path $installDir)) {
+      Write-Output "The test install did not remove itself (exit $($remove.ExitCode)); delete $installDir by hand before installing SPEAKCITY for real."
+    }
   }
   $stage = 'private-release'
   # Publishing needs a token, a repository, and a repository that is actually
