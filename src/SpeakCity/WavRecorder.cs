@@ -22,6 +22,8 @@ public sealed class WavRecorder : IDisposable
     private const int BufferCount = 8;
     /// <summary>Sixty seconds of the target format stays inside the router's body limit.</summary>
     private const long MaxPcmBytes = TargetRate * 2 * 60;
+    /// <summary>Below this peak there is no speech to rescue, only room hiss.</summary>
+    private const int QuietFloor = 1200;
 
     /// <summary>Best first the worker's own format, then formats typical webcams do support.</summary>
     private static readonly (uint Rate, ushort Channels)[] Attempts =
@@ -83,6 +85,15 @@ public sealed class WavRecorder : IDisposable
     [DllImport("winmm.dll")] private static extern int waveInClose(IntPtr handle);
     [DllImport("winmm.dll")] private static extern int waveInPrepareHeader(IntPtr handle, ref WAVEHDR header, int size);
     [DllImport("winmm.dll")] private static extern int waveInAddBuffer(IntPtr handle, ref WAVEHDR header, int size);
+
+    /// <summary>
+    /// Peak amplitude of the last take measured before any gain was applied, 0-32767. The window
+    /// uses it to tell "the learner was too quiet" apart from "nothing was recognised".
+    /// </summary>
+    public int LastPeakAmplitude { get; private set; }
+
+    /// <summary>True when the last take held too little signal for the recogniser to work with.</summary>
+    public bool LastTakeWasQuiet { get { lock (_gate) return LastPeakAmplitude < QuietFloor; } }
 
     public bool IsRecording { get { lock (_gate) return _recording; } }
 
@@ -223,10 +234,46 @@ public sealed class WavRecorder : IDisposable
                     "sound settings and try again.";
                 return false;
             }
-            File.WriteAllBytes(target, BuildWav(ToMono16Bit(pcm)));
+            byte[] mono = ToMono16Bit(pcm);
+            int peak = PeakAmplitude(mono);
+            LastPeakAmplitude = peak;
+            File.WriteAllBytes(target, BuildWav(Normalize(mono, peak)));
             path = target;
             return true;
         }
+    }
+
+    private static int PeakAmplitude(byte[] pcm)
+    {
+        int peak = 0;
+        for (int index = 0; index + 1 < pcm.Length; index += 2)
+        {
+            int sample = Math.Abs(BitConverter.ToInt16(pcm, index));
+            if (sample > peak) peak = sample;
+        }
+        return peak;
+    }
+
+    /// <summary>
+    /// Learners keep their voice low around other people, and the microphone records exactly that,
+    /// which is the level the local recogniser misses. Lifting a quiet take towards a spoken level is
+    /// what makes it transcribe; the gain and the floor are capped so an empty room cannot be
+    /// amplified into a voice that was never said.
+    /// </summary>
+    internal static byte[] Normalize(byte[] pcm, int peak)
+    {
+        const int AlreadyLoudEnough = 24000;
+        const int TargetPeak = 16000;
+        const double MaximumGain = 10;
+        if (peak < QuietFloor || peak > AlreadyLoudEnough) return pcm;
+        double gain = Math.Min(TargetPeak / (double)peak, MaximumGain);
+        var scaled = new byte[pcm.Length];
+        for (int index = 0; index + 1 < pcm.Length; index += 2)
+        {
+            int value = (int)(BitConverter.ToInt16(pcm, index) * gain);
+            BitConverter.GetBytes((short)Math.Clamp(value, -32768, 32767)).CopyTo(scaled, index);
+        }
+        return scaled;
     }
 
     private void JoinPump()

@@ -302,7 +302,11 @@ public sealed class NativeMainWindow : Window
             string text = payload["text"] is JsonValue textValue && textValue.TryGetValue(out string? heard) ? heard?.Trim() ?? "" : "";
             if (text.Length == 0)
             {
-                SetStatus("No speech was recognised. Try again, closer to the microphone.");
+                // A learner who keeps their voice down deserves to be told that, not to be told
+                // the microphone or the recognition is broken.
+                SetStatus(_recorder.LastTakeWasQuiet
+                    ? "The microphone picked up almost nothing. Speak a little louder, or type the answer."
+                    : "No speech was recognised. Try again, closer to the microphone.");
                 return;
             }
             _input.Text = text;

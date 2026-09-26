@@ -52,6 +52,21 @@ public static class SelfTests
             string text = heard["text"]!.GetValue<string>();
             Check("Actual Whisper recognizes synthetic speech", text.Contains("London", StringComparison.OrdinalIgnoreCase) && text.Contains("suitcase", StringComparison.OrdinalIgnoreCase));
             report["synthetic_speech_transcript"] = text;
+            // The learner speaks quietly on purpose; the capture has to lift that without turning an
+            // empty room into invented speech.
+            static byte[] Tone(int amplitude, int frames)
+            {
+                var bytes = new byte[frames * 2];
+                for (int index = 0; index < frames; index++)
+                    BitConverter.GetBytes((short)(amplitude * Math.Sin(index / 8.0))).CopyTo(bytes, index * 2);
+                return bytes;
+            }
+            byte[] quiet = WavRecorder.Normalize(Tone(2000, 8000), 2000);
+            int lifted = 0;
+            for (int index = 0; index + 1 < quiet.Length; index += 2) lifted = Math.Max(lifted, Math.Abs(BitConverter.ToInt16(quiet, index)));
+            Check("Quiet speech is lifted to a recognisable level", lifted > 8000 && lifted <= short.MaxValue);
+            byte[] hiss = Tone(300, 8000);
+            Check("Room hiss below the floor is left alone", ReferenceEquals(WavRecorder.Normalize(hiss, 300), hiss));
             int calls = 0;
             Task<JsonObject> Mock(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
             {
