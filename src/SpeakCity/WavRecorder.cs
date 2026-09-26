@@ -68,7 +68,10 @@ public sealed class WavRecorder : IDisposable
                 // follow from them, and some waveaudio drivers reject being told both.
                 Send($"set {Alias} bitspersample 16 channels 1 samplespersec 16000");
                 TrySend($"set {Alias} bytespersec 32000 alignment 2");
-                Send(milliseconds ? $"record {Alias} length {MaxRecordingMilliseconds}" : $"record {Alias}");
+                // A driver that dislikes the length argument must still record, uncapped, rather
+                // than be reported to the learner as a broken microphone.
+                if (!milliseconds || !TrySend($"record {Alias} length {MaxRecordingMilliseconds}"))
+                    Send($"record {Alias}");
                 _recording = true;
                 return true;
             }
