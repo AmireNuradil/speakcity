@@ -3,7 +3,7 @@
   "catalog_present": true,
   "startup_trace": [
     "app_version=0.2.0.0",
-    "created_utc=2026-09-26T12:36:40.0759573Z",
+    "created_utc=2026-09-26T13:53:40.3230580Z",
     "desktop_session=true",
     "automated_session=true",
     "webview2_runtime_version=153.0.4234.48",
