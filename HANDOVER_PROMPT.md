@@ -142,15 +142,24 @@ JSON channel cannot be corrupted; `Kill(entireProcessTree: true)` reaps the PyIn
 
 ## Known-open, in priority order
 
-1. **The owner's PC has no audio input device at all.** Proven two ways on 2026-09-26: Windows
-   device enumeration returns no microphone, and MCI `sysinfo audio` fails with code 287 ("no
-   devices installed or detected"). This is the whole explanation for "it works on someone else's
-   PC but not mine" — `Speak` cannot ever work on this machine, and no code change will fix it.
-   What *was* wrong: the recorder demanded a successful `set bitspersample/channels/samplespersec`,
-   which a device-less waveaudio alias rejects with an opaque localized MCI error (259), so the app
-   blamed the microphone's settings. It now reports "No microphone was found on this computer" and
-   keeps typing available; format and length arguments are all best-effort fallbacks.
-   **A real microphone test still needs a laptop with one.**
+1. **The microphone never worked in any version, and the cause was MCI, not the hardware.**
+   This PC does have a capture device — `Микрофон (HP 320 FHD Webcam)`, status OK, Windows
+   microphone privacy set to Allow. An earlier note in this file claimed the machine had no input
+   device at all; that was **wrong** (it came from reading MCI error 287 as "no devices" and from
+   filtering device names in English on a Russian Windows). The real fault: MCI's `waveaudio` driver
+   refuses every `set` command here (error 261, "command not supported by the driver"), so a
+   recording came back as **8-bit 11 kHz**, which the bundled Whisper cannot transcribe.
+   `WavRecorder` is therefore rewritten on the winmm **waveIn** API — same system library, still no
+   package dependency, real 16 kHz mono 16-bit PCM, with fallbacks to 44.1/48 kHz and managed
+   downmix + resampling for devices that cannot do 16 kHz.
+   Verified on the owner's own microphone: capture → WAV header `format=1 channels=1 rate=16000
+   bits=16` → bundled worker answered `{"text":"","needs_review":true}` in 3.05 s, i.e. the worker
+   accepts the format (empty text because the 3-second test take was silence).
+   **Still to check on the owner's side:** that test take had a peak amplitude of 1/32767, which
+   means the Windows input level is effectively muted or at zero. If `Speak` returns "no speech was
+   recognised" while the pipeline is healthy, look at Settings → System → Sound → Input → HP 320
+   FHD Webcam volume first. A useful product follow-up: warn "the microphone recorded silence"
+   when a take's peak is near zero, instead of blaming recognition.
 2. **The Desktop shortcut is a relic of a deleted architecture.** `SPEAKCITY AI.lnk` points at
    `Desktop\english\out\server\Start SPEAKCITY.bat`, which starts the removed `SpeakCityServer`
    minimized on port 8899 and **never shows a window** — a second reason the app "did not launch".

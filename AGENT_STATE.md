@@ -137,11 +137,16 @@ output name the stage; every failure this session was a leftover directory, neve
 
 - **Push.** `main` is ahead of `origin/main` by 17 commits and nothing was pushed in this session.
   The repo is public, so publishing a release is auto-skipped; pushing is the owner's call.
-- **Real microphone.** Still never tested on physical hardware — and it cannot be on this machine:
-  enumerating capture devices returns none. The smoke test exercises the bundled audio paths, not a
-  live microphone, so driver behaviour remains unverified even though section 4b removed the three
-  ways a compliant-but-different driver could have been rejected outright. This stays the single
-  most important manual check: Start conversation -> Speak -> transcript must appear in the box.
+- **Microphone: fixed on real hardware, one setting left to check.** Correction — the earlier claim
+  in this file that "this PC has no capture device" was wrong (MCI error 287 was read as "no
+  devices", and device names were filtered in English on a Russian Windows). The machine has
+  `Микрофон (HP 320 FHD Webcam)`, enabled, with microphone privacy set to Allow. MCI's `waveaudio`
+  driver rejects every `set` here (error 261), so recordings came out 8-bit/11 kHz and the worker
+  could not transcribe them — that is why `Speak` failed in every version ever built. `WavRecorder`
+  is rewritten on winmm **waveIn** (no new dependency): verified on that microphone producing
+  16 kHz mono 16-bit PCM that the bundled worker accepts. The one open item is that the test take
+  peaked at 1/32767, i.e. the Windows input level looks muted or zero — worth checking before
+  blaming the app again.
 - **Feedback retry is measured, not proven independent.** The 15/18 figure comes from six runs
   against one provider with the app's own client; the app's shipped rule is slightly narrower than
   the harness (it does not retry a genuinely empty `corrections` list, which is correct behaviour
