@@ -158,8 +158,18 @@ JSON channel cannot be corrupted; `Kill(entireProcessTree: true)` reaps the PyIn
    **Still to check on the owner's side:** that test take had a peak amplitude of 1/32767, which
    means the Windows input level is effectively muted or at zero. If `Speak` returns "no speech was
    recognised" while the pipeline is healthy, look at Settings → System → Sound → Input → HP 320
-   FHD Webcam volume first. A useful product follow-up: warn "the microphone recorded silence"
-   when a take's peak is near zero, instead of blaming recognition.
+   FHD Webcam volume first.
+   **Done since:** the capture normalises quiet speech (peak window 1200-24000, max 10x gain,
+   silence left completely untouched) and the window now separates "the microphone picked up almost
+   nothing" from "no speech was recognised"; two self-test checks cover the curve, 134 checks total.
+   Measured live: an empty room reported peak 81 and was correctly not amplified.
+   **Not done:** no genuinely quiet *spoken* sentence has been measured, so the gain target is still
+   theory. The owner's report that the old browser UI understood them better is most likely the
+   browser's own microphone processing, which this normaliser imitates crudely. A noise gate, or
+   handing 48 kHz to the worker and letting it resample, may do more.
+   **Do not mistake for a second product:** what the owner sometimes has open as "SPEAKCITY AI -
+   Explore city" is the web UI served by the leftover `out\server\SpeakCityServer.exe` from 15.09,
+   whose source was deleted from the repo; its AI path predates every fix in this file.
 2. **The Desktop shortcut is a relic of a deleted architecture.** `SPEAKCITY AI.lnk` points at
    `Desktop\english\out\server\Start SPEAKCITY.bat`, which starts the removed `SpeakCityServer`
    minimized on port 8899 and **never shows a window** — a second reason the app "did not launch".
@@ -227,3 +237,8 @@ work, and write the reasoning down; they review afterwards. But never push, neve
 their source or old copies without being asked, and never report something as fixed without the
 command output that proves it. When a symptom is "the AI is bad", first check whether the model ID
 still exists — that has been the answer twice.
+
+**Open loop to close with the owner:** they said they will hand this project to a stronger model for
+the hard parts and asked to be reminded to request the prompt for it. Ask them what they want that
+prompt to cover before writing it — they explicitly said they would forget, and that the instructions
+will come once things are tested.

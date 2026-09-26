@@ -119,6 +119,49 @@ run left behind):
 5. `native_espeak.ps1` refusing an already-stamped venv, and `collect_notices.py` refusing stale
    notice/source directories → recreated up front.
 
+## 4d. The learner speaks quietly — recorded as a first-class requirement
+
+The owner practises in a shared room and deliberately keeps their voice low. That is not a corner
+case to be told to stop doing: quiet speech was being captured at raw microphone level and the
+local recogniser missed words, which the app reported as "no speech was recognised". Two changes:
+
+- `WavRecorder.Normalize` lifts a quiet take towards a spoken level before it is handed to the
+  worker. Peak below **1200** → left completely alone (amplifying an empty room would invent
+  speech that was never said, which is worse than missing a word); peak above **24000** → already
+  loud; otherwise gain up to **10x** targeting a 16000 peak. Covered by two self-test checks
+  (134 total now), and verified live on the owner's webcam microphone: a silent room reported
+  peak 81 and was correctly not amplified.
+- When a take really is too quiet the window now says *"The microphone picked up almost nothing.
+  Speak a little louder, or type the answer."* instead of blaming recognition.
+
+**Still open and worth measuring properly:** whether the gain is enough for a real whispered-voice
+answer, and whether a noise gate or feeding 48 kHz to the worker (it resamples internally, with
+different filters than ours) recognises quiet speech better. Nobody has measured a spoken-but-quiet
+sample yet.
+
+## 4e. What "the other SPEAKCITY that works better" actually is
+
+The owner had Edge open on **"SPEAKCITY AI · Explore city"** and a console titled "SPEAKCITY server".
+That is not a second product: it is the **web UI** (`ui/app.js` sets `document.title` to
+`SPEAKCITY AI · <page>`, and the city page is titled "Explore city") served by
+**`out\server\SpeakCityServer.exe`, a binary from 15.09 whose source was deleted from the repo in
+`2f0152d`**, started by the stale Desktop shortcut. Two consequences:
+
+- Comparing it against the native window is comparing a dead architecture to the current one. Its
+  AI path predates every fix in this file.
+- Its microphone goes through the **browser**, which applies its own processing and gain — the most
+  likely reason speech recognition felt better there. Section 4d is the native equivalent.
+
+## 4f. A build stage was hijacking real installs
+
+Found while installing for the owner: the `installer-test` stage installs the freshly built
+installer into `%TEMP%\SpeakCity Test`, and **Inno registers that as the machine's install location
+for the app's `AppId`**. Any later genuine install then silently defaults into a temp folder that
+Windows is free to delete — which is a strong candidate for past "I installed it and it is not
+there" confusion. The stage now uninstalls the test copy after its checks. (The owner's current
+install is correct: `%LOCALAPPDATA%\Programs\SPEAKCITY AI`, and its `SpeakCity.dll` does contain the
+waveIn microphone path.)
+
 ## 5. Installer build status
 
 `out\release\SPEAKCITY-AI-Setup-x64.exe` — **26.09 16:56, 691 MB** — is current: it contains the AI
