@@ -142,17 +142,29 @@ JSON channel cannot be corrupted; `Kill(entireProcessTree: true)` reaps the PyIn
 
 ## Known-open, in priority order
 
-1. **Physical microphone test.** Start conversation → Speak → transcript must appear. Nobody has
-   ever done this on real hardware. Three driver-tolerance defects in that path are already fixed,
-   which raises the odds it works but proves nothing.
-2. **Install on a clean PC** (a second machine).
-3. **Two-model routing** — a fast model for live turns, a stronger one for the end-of-run report
+1. **The owner's PC has no audio input device at all.** Proven two ways on 2026-09-26: Windows
+   device enumeration returns no microphone, and MCI `sysinfo audio` fails with code 287 ("no
+   devices installed or detected"). This is the whole explanation for "it works on someone else's
+   PC but not mine" — `Speak` cannot ever work on this machine, and no code change will fix it.
+   What *was* wrong: the recorder demanded a successful `set bitspersample/channels/samplespersec`,
+   which a device-less waveaudio alias rejects with an opaque localized MCI error (259), so the app
+   blamed the microphone's settings. It now reports "No microphone was found on this computer" and
+   keeps typing available; format and length arguments are all best-effort fallbacks.
+   **A real microphone test still needs a laptop with one.**
+2. **The Desktop shortcut is a relic of a deleted architecture.** `SPEAKCITY AI.lnk` points at
+   `Desktop\english\out\server\Start SPEAKCITY.bat`, which starts the removed `SpeakCityServer`
+   minimized on port 8899 and **never shows a window** — a second reason the app "did not launch".
+   The installer's own shortcut is correct (`{app}\SpeakCity.exe`) but its desktop-icon task is
+   `Flags: unchecked`, so it is off by default. Launch from the Start Menu, or tick the box, or
+   delete the stale `.lnk`.
+3. **Install on a clean PC** (a second machine).
+4. **Two-model routing** — a fast model for live turns, a stronger one for the end-of-run report
    where 28 s is irrelevant. The table above is the justification. Needs a second model field in
    `ApiConfig` + the settings window + DPAPI storage validation.
-4. **Stricter feedback contract** — `{"corrections":[...],"checked":true}` and reject a reply
+5. **Stricter feedback contract** — `{"corrections":[...],"checked":true}` and reject a reply
    without the marker. Removes the empty-vs-failed ambiguity outright, at the cost of changing the
    contract for every model. Owner decision, not yet taken.
-5. **Kokoro int8 multi-lang** (`model.int8.onnx` 114 MB + `voices.bin` 53 MB, at
+6. **Kokoro int8 multi-lang** (`model.int8.onnx` 114 MB + `voices.bin` 53 MB, at
    `C:\Users\Acer\Desktop\claw onyx reader\.tooling\kokoro-int8-multi-lang-v1_1`) versus the pinned
    fp32 325 MB `kokoro-v1.0.onnx` with two voices. Potential size and voice-count win, but it
    collides with the standing rule below. Owner decision required.

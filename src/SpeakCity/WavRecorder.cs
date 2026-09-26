@@ -59,14 +59,24 @@ public sealed class WavRecorder : IDisposable
             try
             {
                 Close();
+                // MCI only answers this when the machine has a waveaudio input device at all.
+                // Without one every later command fails with an opaque parameter error, so say
+                // the true thing instead of blaming the microphone's settings.
+                if (!TrySend("sysinfo audio"))
+                {
+                    error = "No microphone was found on this computer, so practising by voice is " +
+                        "not possible here. Typing still works.";
+                    return false;
+                }
                 string path = Path.Combine(Path.GetTempPath(), $"speakcity-{Guid.NewGuid():N}.wav");
                 Send($"open new type waveaudio alias {Alias}");
                 _open = true;
                 _pendingPath = path;
-                bool milliseconds = UseMillisecondTiming();
-                // bits per sample, channels and rate are the format; bytespersec and alignment
-                // follow from them, and some waveaudio drivers reject being told both.
-                Send($"set {Alias} bitspersample 16 channels 1 samplespersec 16000");
+                bool milliseconds = TrySend($"set {Alias} time format ms");
+                // 16 kHz mono 16-bit is what the bundled worker prefers, but a driver may refuse a
+                // format change and recording at its default still transcribes, so neither the
+                // format nor its derived values may be fatal here.
+                TrySend($"set {Alias} bitspersample 16 channels 1 samplespersec 16000");
                 TrySend($"set {Alias} bytespersec 32000 alignment 2");
                 // A driver that dislikes the length argument must still record, uncapped, rather
                 // than be reported to the learner as a broken microphone.
@@ -83,9 +93,6 @@ public sealed class WavRecorder : IDisposable
             }
         }
     }
-
-    /// <summary>Picks millisecond timing, reporting whether this driver understands it.</summary>
-    private static bool UseMillisecondTiming() => TrySend($"set {Alias} time format ms");
 
     private static bool TrySend(string command)
     {
