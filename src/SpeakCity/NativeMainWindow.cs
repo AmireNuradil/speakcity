@@ -38,6 +38,7 @@ public sealed class NativeMainWindow : Window
     private readonly CheckBox _speakReplies = new();
     private readonly WavRecorder _recorder = new();
     private readonly MediaPlayer _player = new();
+    private string? _spokenFile;
     private string? _lastLucyLine;
 
     private readonly TextBlock _chatHint = new();
@@ -59,6 +60,10 @@ public sealed class NativeMainWindow : Window
     public NativeMainWindow()
     {
         AppStartup.Note("startup", "native-window", "no browser component required");
+        // Every spoken line is written to a temporary WAV; drop it when playback ends so a long
+        // session cannot pile up files in the user's temp folder.
+        _player.MediaEnded += (_, _) => RetireSpokenFile();
+        _player.MediaFailed += (_, _) => RetireSpokenFile();
         Title = "SPEAKCITY AI — practise spoken English";
         Width = 1220;
         Height = 880;
@@ -278,6 +283,13 @@ public sealed class NativeMainWindow : Window
         _busy = true; UpdateButtons();
         try
         {
+            // Checked before reading: an accidental long take must not be pulled into memory
+            // just so the router can refuse it.
+            if (new FileInfo(wavPath).Length > AppRouter.MaxBodyBytes)
+            {
+                SetStatus("That recording was too long. Press Speak again and keep the answer under about a minute.");
+                return;
+            }
             byte[] audio = await File.ReadAllBytesAsync(wavPath);
             // /api/stt takes raw WAV bytes, so the router is called directly.
             var response = _router is null ? null : await _router.HandleAsync("POST", "/api/stt", audio, _shutdown.Token);
@@ -287,7 +299,7 @@ public sealed class NativeMainWindow : Window
                 SetStatus("Transcription failed: " + FailureText(response, payload));
                 return;
             }
-            string text = payload["text"]?.GetValue<string>()?.Trim() ?? "";
+            string text = payload["text"] is JsonValue textValue && textValue.TryGetValue(out string? heard) ? heard?.Trim() ?? "" : "";
             if (text.Length == 0)
             {
                 SetStatus("No speech was recognised. Try again, closer to the microphone.");
@@ -325,6 +337,8 @@ public sealed class NativeMainWindow : Window
             }
             string path = Path.Combine(Path.GetTempPath(), $"speakcity-tts-{Guid.NewGuid():N}.wav");
             await File.WriteAllBytesAsync(path, response.Body);
+            RetireSpokenFile();
+            _spokenFile = path;
             _player.Open(new Uri(path));
             _player.Play();
         }
@@ -334,6 +348,16 @@ public sealed class NativeMainWindow : Window
             // A missing or busy voice must never block the conversation.
             SetStatus("Lucy's voice could not play. Typing still works.");
         }
+    }
+
+    private void RetireSpokenFile()
+    {
+        if (_spokenFile is null) return;
+        try { File.Delete(_spokenFile); }
+        // Still held by the player: keep the path so the next spoken line tries again.
+        catch (IOException) { return; }
+        catch (UnauthorizedAccessException) { return; }
+        _spokenFile = null;
     }
 
     /// <summary>

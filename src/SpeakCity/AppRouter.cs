@@ -16,6 +16,8 @@ public sealed record AppResponse(int Status, string ContentType, byte[] Body)
 public sealed class AppRouter : IDisposable
 {
     private const int MaxTurns = 8;
+    /// <summary>Shared with the window so an over-long take is refused before it is read into memory.</summary>
+    public const long MaxBodyBytes = 3 * 1024 * 1024;
     private readonly JsonObject _catalog;
     private readonly SpeechWorkerClient _speech;
     private readonly Func<Task<bool>> _configure;
@@ -50,7 +52,7 @@ public sealed class AppRouter : IDisposable
 
     public async Task<AppResponse> HandleAsync(string method, string path, byte[] body, CancellationToken ct = default)
     {
-        if (body.Length > 3 * 1024 * 1024) return AppResponse.Error("body_too_large", 413);
+        if (body.Length > MaxBodyBytes) return AppResponse.Error("body_too_large", 413);
         foreach (var item in _sessions.Where(item => DateTime.UtcNow - item.Value.LastUsed > TimeSpan.FromHours(1) && item.Value.Gate.CurrentCount != 0))
             _sessions.TryRemove(item.Key, out _);
         try

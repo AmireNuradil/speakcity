@@ -13,6 +13,9 @@ namespace SpeakCity;
 public sealed class WavRecorder : IDisposable
 {
     private const string Alias = "speakcitycap";
+    // An uncapped take keeps buffering in memory for as long as the microphone is left on;
+    // sixty seconds of this format stays inside the router's body limit.
+    private const int MaxRecordingMilliseconds = 60_000;
     private readonly object _gate = new();
     private bool _open;
     private bool _recording;
@@ -60,9 +63,12 @@ public sealed class WavRecorder : IDisposable
                 Send($"open new type waveaudio alias {Alias}");
                 _open = true;
                 _pendingPath = path;
-                Skip();
-                Send($"set {Alias} bitspersample 16 channels 1 samplespersec 16000 bytespersec 32000 alignment 2");
-                Send($"record {Alias}");
+                bool milliseconds = UseMillisecondTiming();
+                // bits per sample, channels and rate are the format; bytespersec and alignment
+                // follow from them, and some waveaudio drivers reject being told both.
+                Send($"set {Alias} bitspersample 16 channels 1 samplespersec 16000");
+                TrySend($"set {Alias} bytespersec 32000 alignment 2");
+                Send(milliseconds ? $"record {Alias} length {MaxRecordingMilliseconds}" : $"record {Alias}");
                 _recording = true;
                 return true;
             }
@@ -75,11 +81,14 @@ public sealed class WavRecorder : IDisposable
         }
     }
 
-    private static void Skip()
+    /// <summary>Picks millisecond timing, reporting whether this driver understands it.</summary>
+    private static bool UseMillisecondTiming() => TrySend($"set {Alias} time format ms");
+
+    private static bool TrySend(string command)
     {
-        // Best effort: some drivers dislike an unsupported command, and a failure
-        // here must not abort a recording that would otherwise work.
-        try { Send($"set {Alias} time format ms"); } catch (InvalidOperationException) { }
+        // Best effort: some drivers dislike an unsupported command, and a failure here must not
+        // abort a recording that would otherwise work.
+        try { Send(command); return true; } catch (InvalidOperationException) { return false; }
     }
 
     /// <summary>Stops recording, saves the WAV and returns its path.</summary>
