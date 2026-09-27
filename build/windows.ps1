@@ -11,7 +11,9 @@ function Put-PrivateReport([string]$Path, [object]$Value) {
   $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
   $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/contents/$Path"
   $json = $Value | ConvertTo-Json -Depth 15
-  $body = @{ message = 'Record desktop build evidence'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)); branch = 'main' }
+  # Evidence belongs to the branch that was built: a manual run on a work branch must not rewrite main's records.
+  $branch = if ([string]::IsNullOrWhiteSpace($env:GITHUB_REF_NAME)) { 'main' } else { $env:GITHUB_REF_NAME }
+  $body = @{ message = 'Record desktop build evidence'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)); branch = $branch }
   $existing = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
   if ($existing.StatusCode -eq 200) { $body.sha = ($existing.Content | ConvertFrom-Json).sha }
   elseif ($existing.StatusCode -ne 404) { throw "Cannot read report path: $($existing.StatusCode)" }
@@ -22,6 +24,13 @@ function Download-Checked([string]$Url, [string]$Path, [string]$Sha) {
   if ((Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Sha) { throw "Integrity check failed for $(Split-Path $Path -Leaf)" }
 }
 function Assert-Exit([string]$Name) { if ($LASTEXITCODE -ne 0) { throw "$Name returned exit code $LASTEXITCODE" } }
+function Test-RepositoryPrivate {
+  # An unsigned installer and its temporary signed download links may only be published from a private repository.
+  if (-not $env:GH_TOKEN -or -not $env:GITHUB_REPOSITORY) { return $false }
+  try {
+    return ((Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }).private) -eq $true
+  } catch { return $false }
+}
 function Copy-Fresh([string]$Source, [string]$Destination) {
   # Copy-Item -Recurse aborts with "already exists" when the destination directory is left
   # over from an earlier run, which used to kill a ~20 minute build on its last stages.
@@ -243,7 +252,8 @@ try {
   try {
     $uiProcess = Start-Process (Join-Path $installDir 'SpeakCity.exe') -ArgumentList @('--ui-smoke',"`"$uiReport`"") -PassThru
     # The app bounds its own startup now; this is only the outer guard.
-    if (-not $uiProcess.WaitForExit(240000)) { $uiProcess.Kill($true); throw 'Native WebView2 UI test exceeded 240 seconds.' }
+    # The smoke check now also opens the window, warms both speech models and renders screenshots.
+    if (-not $uiProcess.WaitForExit(420000)) { $uiProcess.Kill($true); throw 'Native UI smoke test exceeded 420 seconds.' }
     $uiExit = $uiProcess.ExitCode
   } finally { Remove-Item Env:SPEAKCITY_AUTOMATION -ErrorAction SilentlyContinue }
   $ui = $null
@@ -276,12 +286,7 @@ try {
   # recorded below are temporary signed URLs: neither may be handed to the public.
   # A public repository therefore skips publishing and keeps its files under
   # out/release; that is a completed build, not a failure.
-  $repoPrivate = $false
-  if ([bool]$env:GH_TOKEN -and [bool]$env:GITHUB_REPOSITORY) {
-    try {
-      $repoPrivate = ((Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY" -Headers @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }).private) -eq $true
-    } catch { $repoPrivate = $false }
-  }
+  $repoPrivate = Test-RepositoryPrivate
   $detail.repository_private = $repoPrivate
   if ([bool]$env:GH_TOKEN -and [bool]$env:GITHUB_REPOSITORY -and $repoPrivate) {
     $sourceZip = Join-Path $root 'out/release/SPEAKCITY-AI-source.zip'
@@ -347,7 +352,11 @@ try {
   # title - an incomplete candidate is never presented as a passed build.
   try {
     $salvage = Join-Path $root 'out/release/SPEAKCITY-AI-Setup-x64.exe'
-    if (Test-Path $salvage) {
+    # Same rule as a passing build: a public repository never publishes the unsigned installer,
+    # not even as a pre-release of a failed run.
+    if ((Test-Path $salvage) -and -not (Test-RepositoryPrivate)) {
+      Write-Output 'Incomplete candidate not published: the repository is public. The installer stays under out/release.'
+    } elseif (Test-Path $salvage) {
       $reportsZip = Join-Path $root 'out/release/SPEAKCITY-build-reports.zip'
       try { Compress-Archive -Path (Join-Path $root 'out/reports/*') -DestinationPath $reportsZip -Force }
       catch { Write-Output "Build report archive skipped: $($_.Exception.Message)" }
