@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,6 +22,20 @@ public static class SelfTests
         try
         {
             Check("All packaged interface assets exist", new[] { "index.html", "app.js", "app.css", "i18n.js", "recorder.js", "recorder-worklet.js", "scenario-catalog.js" }.All(f => File.Exists(Path.Combine(AppContext.BaseDirectory, "ui", f))));
+            // The native window's pictures: every scenario's picture must decode, and a missing
+            // one must fail here instead of showing up as an empty grey card on a learner's PC.
+            var catalog = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "content", "scenarios.json")))!.AsObject();
+            foreach (var pair in catalog)
+            {
+                var picture = NativeAssets.Load(NativeAssets.ForScenario(pair.Value?["image"]?.GetValue<string>()));
+                Check($"{pair.Key}: native scene picture decodes", picture.PixelWidth > 0 && new System.Windows.Controls.Image { Source = picture }.Source is not null);
+            }
+            Check("Native city map and Lucy portrait decode", NativeAssets.Load(NativeAssets.CityPicture).PixelWidth > 0 && NativeAssets.Load(NativeAssets.LucyPicture).PixelWidth > 0);
+            bool missingReported;
+            try { NativeAssets.Load("not-packaged.jpg"); missingReported = false; }
+            catch (InvalidOperationException) { missingReported = true; }
+            Check("A missing native picture fails loudly", missingReported);
+            Check("Lucy's lines split into sentences without losing words", ChunksKeepWords());
             // Recorded, not asserted: these describe the machine, and a build agent
             // legitimately differs from a learner's desktop. They exist so a failed or
             // skipped window test can be read as an environment fact, not a guess.
@@ -45,13 +60,30 @@ public static class SelfTests
             bool frozen = ping["frozen"]?.GetValue<bool>() ?? ping["is_frozen"]?.GetValue<bool>() ?? false;
             report["worker_ping"] = ping.DeepClone();
             Check("Speech runs as frozen Windows executable", frozen);
+            var clock = Stopwatch.StartNew();
             var spoken = await worker.RequestAsync("tts", new JsonObject { ["text"] = "I am flying to London and I have one suitcase.", ["voice"] = "american", ["speed"] = .95 });
+            var timings = new JsonObject { ["tts_first_call_ms"] = clock.ElapsedMilliseconds };
             byte[] audio = Convert.FromBase64String(spoken["audio_base64"]!.GetValue<string>());
             Check("Actual Kokoro returns WAV audio", audio.Length > 44 && Encoding.ASCII.GetString(audio, 0, 4) == "RIFF");
+            clock.Restart();
             var heard = await worker.RequestAsync("stt", new JsonObject { ["audio_base64"] = Convert.ToBase64String(audio) });
+            timings["stt_first_call_ms"] = clock.ElapsedMilliseconds;
             string text = heard["text"]!.GetValue<string>();
             Check("Actual Whisper recognizes synthetic speech", text.Contains("London", StringComparison.OrdinalIgnoreCase) && text.Contains("suitcase", StringComparison.OrdinalIgnoreCase));
             report["synthetic_speech_transcript"] = text;
+            // Recorded, not asserted (machine-dependent): what sentence-by-sentence voicing saves
+            // on this CPU, and what a warm transcription costs once the models are loaded.
+            const string reply = "That sounds lovely, thank you. We have a quiet table by the window. Would you like to start with a drink while you look at the menu?";
+            clock.Restart();
+            await worker.RequestAsync("tts", new JsonObject { ["text"] = reply, ["voice"] = "american", ["speed"] = .95 });
+            timings["tts_warm_whole_reply_ms"] = clock.ElapsedMilliseconds;
+            clock.Restart();
+            await worker.RequestAsync("tts", new JsonObject { ["text"] = SpeechChunks.Split(reply)[0], ["voice"] = "american", ["speed"] = .95 });
+            timings["tts_warm_first_sentence_ms"] = clock.ElapsedMilliseconds;
+            clock.Restart();
+            await worker.RequestAsync("stt", new JsonObject { ["audio_base64"] = Convert.ToBase64String(audio) });
+            timings["stt_warm_ms"] = clock.ElapsedMilliseconds;
+            report["timings_ms"] = timings;
             // The learner speaks quietly on purpose; the capture has to lift that without turning an
             // empty room into invented speech.
             static byte[] Tone(int amplitude, int frames)
@@ -159,5 +191,15 @@ public static class SelfTests
             await File.WriteAllTextAsync(reportPath, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             return 1;
         }
+    }
+
+    private static bool ChunksKeepWords()
+    {
+        const string reply = "That sounds lovely, thank you. We have a quiet table by the window. Would you like a drink first?";
+        var parts = SpeechChunks.Split(reply);
+        return parts.Count == 3 && string.Join(" ", parts) == reply
+            && SpeechChunks.Split("OK. Great! What is your name, please?").Count == 1
+            && SpeechChunks.Split("No punctuation at all here").Count == 1
+            && SpeechChunks.Split("   ").Count == 0;
     }
 }
