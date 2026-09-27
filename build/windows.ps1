@@ -15,7 +15,8 @@ function Put-PrivateReport([string]$Path, [object]$Value) {
   # so a work branch never rewrites main's records.
   $branch = @($env:GITHUB_HEAD_REF, $env:GITHUB_REF_NAME, 'main') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
   $body = @{ message = 'Record desktop build evidence'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)); branch = $branch }
-  $existing = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
+  # The update needs the blob SHA on the branch being written; without ?ref the API answers with main's.
+  $existing = Invoke-WebRequest -Uri "$($uri)?ref=$([uri]::EscapeDataString($branch))" -Headers $headers -SkipHttpErrorCheck
   if ($existing.StatusCode -eq 200) { $body.sha = ($existing.Content | ConvertFrom-Json).sha }
   elseif ($existing.StatusCode -ne 404) { throw "Cannot read report path: $($existing.StatusCode)" }
   Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 15) | Out-Null
@@ -345,7 +346,9 @@ try {
     if (Test-Path $file) { $logs[$file] = @(Get-Content $file | Select-Object -Last 55) }
   }
   $detail.logs = $logs
-  Put-PrivateReport '.build/desktop-build.json' $detail
+  # Best effort here: a failed evidence upload must not replace the build error that got us here.
+  try { Put-PrivateReport '.build/desktop-build.json' $detail }
+  catch { Write-Output "Build evidence could not be recorded: $($_.Exception.Message)" }
   # If the installer itself was compiled but a later verification step failed, keep
   # a copy of that unsigned candidate instead of losing it with the runner: the
   # physical Windows 11 microphone, WebView2 and clean-PC install checks need a real
