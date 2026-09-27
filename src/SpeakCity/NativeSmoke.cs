@@ -22,7 +22,7 @@ namespace SpeakCity;
 /// </summary>
 public static class NativeSmoke
 {
-    private const string Scope = "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider is a test double; no live API credentials used.";
+    private const string Scope = "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider and speakers are test doubles (a build agent has no audio output); no live API credentials used.";
 
     public static async Task<int> RunAsync(string reportPath)
     {
@@ -137,7 +137,16 @@ public static class NativeSmoke
         var previousMode = app?.ShutdownMode ?? ShutdownMode.OnLastWindowClose;
         // Closing the test window must not end the process before the report is written.
         if (app is not null) app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        var window = new NativeMainWindow(SmokeConfig, Mock)
+        // Stand-in speakers: "play" each clip for its own length (capped) and log when it started and ended.
+        var clips = new List<(DateTime Start, DateTime End)>();
+        async Task<bool> Speakers(byte[] wav)
+        {
+            var started = DateTime.UtcNow;
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1500, WavMilliseconds(wav))));
+            clips.Add((started, DateTime.UtcNow));
+            return true;
+        }
+        var window = new NativeMainWindow(SmokeConfig, Mock, Speakers)
         {
             ShowActivated = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
@@ -170,7 +179,11 @@ public static class NativeSmoke
                 window.InPractice && window.PortraitPicture is { PixelWidth: > 0 } && window.PortraitPainted);
             if (window.CurrentSpeech is { } greeting) await Task.WhenAny(greeting, Task.Delay(TimeSpan.FromSeconds(60)));
             if (window.FirstVoiceDelay is { } greetingDelay) timings["greeting_first_voice_ms"] = (long)greetingDelay.TotalMilliseconds;
-            check("Lucy's greeting is voiced sentence by sentence", window.VoicedSentences >= 2);
+            check("Lucy's greeting is voiced sentence by sentence", window.VoicedSentences >= 2 && clips.Count >= 2);
+            double gap = (clips[1].Start - clips[0].End).TotalMilliseconds;
+            timings["gap_between_greeting_sentences_ms"] = (long)gap;
+            // The second sentence was synthesised while the first one played, so it is ready at once.
+            check("The next sentence is ready when the previous one ends", gap < 400);
 
             await window.SendForTestAsync("I want book a room.");
             check("Lucy's replies carry her avatar", window.LucyAvatars >= 2);
@@ -202,6 +215,15 @@ public static class NativeSmoke
             window.Close();
             if (app is not null) app.ShutdownMode = previousMode;
         }
+    }
+
+    private static double WavMilliseconds(byte[] wav)
+    {
+        if (wav.Length <= 44) return 0;
+        int channels = Math.Max((int)BitConverter.ToInt16(wav, 22), 1);
+        int rate = Math.Max(BitConverter.ToInt32(wav, 24), 1);
+        int bits = Math.Max((int)BitConverter.ToInt16(wav, 34), 8);
+        return (wav.Length - 44) * 1000.0 / (rate * channels * (bits / 8));
     }
 
     private static async Task WithTimeout(Task task, int seconds, string message)

@@ -6,7 +6,7 @@ Done from a Linux sandbox. Here WPF compiles (`-p:EnableWindowsTargeting=true`) 
 Windows proof therefore comes only from the PR's CI run. **That run needs the owner to press
 "Approve and run workflows" on the PR**, because GitHub holds workflows opened by the bot and
 manual dispatch is refused to the bot token (HTTP 403). Expected counts once it runs:
-self-test **149** (was 134), UI smoke **22** (was 11). Treat them as unproven until the run shows them.
+self-test **149** (was 134), UI smoke **23** (was 11). Treat them as unproven until the run shows them.
 
 **Native window, now like the web version.** The city view has `city` as a map with 8 pins at the
 web's percentages (keyboard-focusable named buttons; the selected pin is teal with a white ring,
@@ -21,6 +21,11 @@ conversation resumable.
   copy stage, so a re-run cannot collide. The web and its CSP are untouched.
 - **Honest limit:** only airport, café, city and Lucy art exists. Six scenarios show Lucy's portrait,
   as the web does.
+- First Windows run (36333569149, before the fixes below): build, installer and **self-test
+  145/145** passed. TTS for a whole 3-sentence reply took 1659 ms; its first sentence took
+  488 ms. The UI smoke passed 18 checks, then stopped on voicing: the runner has no audio
+  output, so `MediaPlayer` fails. The smoke now uses stand-in speakers, as it already did
+  for the AI, and additionally checks that the next sentence is ready when the previous one ends.
 - Screenshots: the UI smoke renders `native-ui-city.png`, `native-ui-practice.png` and
   `native-ui-feedback.png`. The workflow uploads them as the run artifact `speakcity-reports-<run>`.
   Nobody has looked at them yet.

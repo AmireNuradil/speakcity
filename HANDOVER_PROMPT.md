@@ -64,7 +64,7 @@ python -B tests/notice_collection_test.py                   # Ran 8, OK
 node --test ui/tests/ui.test.cjs ui/tests/recorder.test.cjs # 39 pass, 0 fail
 & 'C:\Users\Acer\dotnet10\dotnet.exe' build src\SpeakCity\SpeakCity.csproj -c Release   # 0 err, 0 warn
 & ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --self-test "$env:TEMP\st.json"  # 149 checks after PR #1 (134 before)
-& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 22 checks after PR #1 (11 before); also writes native-ui-*.png beside the report
+& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 23 checks after PR #1 (11 before); also writes native-ui-*.png beside the report
 ```
 
 As of 2026-09-26 all of the above are green, and `out\release\SPEAKCITY-AI-Setup-x64.exe`

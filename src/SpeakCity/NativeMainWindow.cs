@@ -50,6 +50,7 @@ public sealed class NativeMainWindow : Window
 
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string, IReadOnlyList<(string Role, string Content)>, int, CancellationToken, Task<JsonObject>>? _completeOverride;
+    private readonly Func<byte[], Task<bool>>? _playOverride;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ApiConfig _config;
     private AppRouter? _router;
@@ -113,6 +114,7 @@ public sealed class NativeMainWindow : Window
     private TaskCompletionSource<bool>? _playing;
     private int _speechGeneration;
     private int _voicedSentences;
+    private int _playbackFailures;
     private TimeSpan? _firstVoiceDelay;
     private Task? _currentSpeech;
     // Voice warm-up: the bootstrap ping only verifies the ~465 MB of model files; Kokoro
@@ -133,15 +135,24 @@ public sealed class NativeMainWindow : Window
 
     /// <param name="config">Smoke-test hook: settings to use instead of the saved DPAPI file.</param>
     /// <param name="complete">Smoke-test hook: a scripted AI completion; the app itself never passes one.</param>
+    /// <param name="play">Smoke-test hook: stands in for the speakers on a build agent that has none.</param>
     internal NativeMainWindow(ApiConfig? config,
-        Func<string, IReadOnlyList<(string Role, string Content)>, int, CancellationToken, Task<JsonObject>>? complete)
+        Func<string, IReadOnlyList<(string Role, string Content)>, int, CancellationToken, Task<JsonObject>>? complete,
+        Func<byte[], Task<bool>>? play = null)
     {
         _config = config ?? ApiConfigStore.Load();
         _completeOverride = complete;
+        _playOverride = play;
         AppStartup.Note("startup", "native-window", "no browser component required");
         // Every spoken sentence is a temporary WAV; they are deleted as soon as the player lets go.
         _player.MediaEnded += (_, _) => { _playing?.TrySetResult(true); RetireSpokenFiles(); };
-        _player.MediaFailed += (_, _) => { _playing?.TrySetResult(false); RetireSpokenFiles(); };
+        _player.MediaFailed += (_, e) =>
+        {
+            _playbackFailures++;
+            AppStartup.Note("voice", "playback-failed", e.ErrorException?.GetType().Name);
+            _playing?.TrySetResult(false);
+            RetireSpokenFiles();
+        };
         // The recorder stops itself at the speech worker's limit; finish the take as if Stop was pressed.
         _recorder.LimitReached += () => Dispatcher.BeginInvoke(async () =>
         {
@@ -298,12 +309,10 @@ public sealed class NativeMainWindow : Window
         _homeView.Children.Add(new ScrollViewer { Style = NativeTheme.Style("ScrollHost"), Content = left, Margin = new Thickness(0, 0, 8, 0) });
 
         var right = new Grid();
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (int row = 0; row < 5; row++) right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        right.Children.Add(new TextBlock { Text = "WHERE DO YOU WANT TO PRACTISE?", Style = NativeTheme.Style("Label"), Margin = new Thickness(2, 0, 0, 9) });
+        var heading = new TextBlock { Text = "WHERE DO YOU WANT TO PRACTISE?", Style = NativeTheme.Style("Label"), Margin = new Thickness(2, 0, 0, 9) };
+        right.Children.Add(heading);
         BuildOnboarding();
         Grid.SetRow(_onboarding, 1);
         right.Children.Add(_onboarding);
@@ -324,6 +333,19 @@ public sealed class NativeMainWindow : Window
         right.Children.Add(how);
         Grid.SetColumn(right, 1);
         _homeView.Children.Add(right);
+
+        // The map takes the width it is given, but never more height than is left after the
+        // heading, note and steps, so those sit directly under it at any window size.
+        void FitMap()
+        {
+            static double Outer(FrameworkElement element) =>
+                element.IsVisible ? element.ActualHeight + element.Margin.Top + element.Margin.Bottom : 0;
+            double spare = right.ActualHeight - Outer(heading) - Outer(_onboarding) - Outer(note) - Outer(how);
+            double byWidth = right.ActualWidth * MapHeight / MapWidth;
+            if (right.ActualWidth > 0) map.Height = Math.Max(150, Math.Min(byWidth, spare));
+        }
+        right.SizeChanged += (_, _) => FitMap();
+        _onboarding.IsVisibleChanged += (_, _) => Dispatcher.BeginInvoke(FitMap, DispatcherPriority.Loaded);
     }
 
     private Border BuildLucyCard()
@@ -441,7 +463,7 @@ public sealed class NativeMainWindow : Window
         _cityPicture = NativeAssets.TryLoad(NativeAssets.CityPicture);
         NativeAssets.PaintCover(map, _cityPicture, 0.5, 0.5);
         AutomationProperties.SetName(map, CityAlt);
-        return new Viewbox { Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Top, Child = map };
+        return new Viewbox { Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Child = map };
     }
 
     private Border BuildHowItWorks()
@@ -765,7 +787,7 @@ public sealed class NativeMainWindow : Window
             pin.Visibility = place is null ? Visibility.Collapsed : Visibility.Visible;
             if (place is null) continue;
             bool active = _selected?.Id == id;
-            double size = active ? 16 : 13;
+            double size = active ? 18 : 15;
             var content = new StackPanel { Orientation = Orientation.Horizontal };
             content.Children.Add(new TextBlock { Text = place.Glyph, FontFamily = new FontFamily("Segoe UI Emoji"), FontSize = size, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
             content.Children.Add(new TextBlock { Text = place.Title, FontSize = size, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
@@ -774,7 +796,7 @@ public sealed class NativeMainWindow : Window
             pin.Background = active ? (id == "cafe" ? Hex("#FF873F31") : NativeTheme.Brush("Teal")) : Hex("#ECF4F8F9");
             pin.BorderBrush = active ? Hex("#B0FFFFFF") : Hex("#99FFFFFF");
             pin.BorderThickness = new Thickness(active ? 3 : 1);
-            pin.Padding = active ? new Thickness(12, 8, 13, 8) : new Thickness(9, 5, 10, 5);
+            pin.Padding = active ? new Thickness(13, 8, 14, 8) : new Thickness(10, 5, 11, 5);
             pin.ToolTip = place.Mission.Length > 0 ? place.Mission : null;
             Panel.SetZIndex(pin, active ? 1 : 0);
             AutomationProperties.SetName(pin, place.Title);
@@ -1030,6 +1052,12 @@ public sealed class NativeMainWindow : Window
     /// <summary>Plays one WAV; false when it was superseded, failed, or the window is closing.</summary>
     private async Task<bool> PlayAsync(byte[] audio, int generation)
     {
+        if (_playOverride is not null)
+        {
+            _voicedSentences++;
+            bool heard = await _playOverride(audio);
+            return heard && generation == _speechGeneration && !_closing;
+        }
         string path = Path.Combine(Path.GetTempPath(), $"speakcity-tts-{Guid.NewGuid():N}.wav");
         await File.WriteAllBytesAsync(path, audio);
         if (generation != _speechGeneration || _closing)
@@ -1586,6 +1614,7 @@ public sealed class NativeMainWindow : Window
     internal Task? VoiceWarmup => _warmup;
     internal Task? CurrentSpeech => _currentSpeech;
     internal int VoicedSentences => _voicedSentences;
+    internal int PlaybackFailures => _playbackFailures;
     internal TimeSpan? FirstVoiceDelay => _firstVoiceDelay;
     internal IReadOnlyList<Button> Pins => _pins;
     internal string? SelectedPlaceId => _selected?.Id;
