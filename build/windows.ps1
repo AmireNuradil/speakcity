@@ -11,8 +11,9 @@ function Put-PrivateReport([string]$Path, [object]$Value) {
   $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
   $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/contents/$Path"
   $json = $Value | ConvertTo-Json -Depth 15
-  # Evidence belongs to the branch that was built: a manual run on a work branch must not rewrite main's records.
-  $branch = if ([string]::IsNullOrWhiteSpace($env:GITHUB_REF_NAME)) { 'main' } else { $env:GITHUB_REF_NAME }
+  # Evidence belongs to the branch that was built (a pull request's head branch, not its merge ref),
+  # so a work branch never rewrites main's records.
+  $branch = @($env:GITHUB_HEAD_REF, $env:GITHUB_REF_NAME, 'main') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
   $body = @{ message = 'Record desktop build evidence'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)); branch = $branch }
   $existing = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
   if ($existing.StatusCode -eq 200) { $body.sha = ($existing.Content | ConvertFrom-Json).sha }
