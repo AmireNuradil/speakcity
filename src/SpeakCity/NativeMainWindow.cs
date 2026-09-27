@@ -142,6 +142,13 @@ public sealed class NativeMainWindow : Window
         // Every spoken sentence is a temporary WAV; they are deleted as soon as the player lets go.
         _player.MediaEnded += (_, _) => { _playing?.TrySetResult(true); RetireSpokenFiles(); };
         _player.MediaFailed += (_, _) => { _playing?.TrySetResult(false); RetireSpokenFiles(); };
+        // The recorder stops itself at the speech worker's limit; finish the take as if Stop was pressed.
+        _recorder.LimitReached += () => Dispatcher.BeginInvoke(async () =>
+        {
+            if (!_recorder.IsRecording || _closing) return;
+            ShowToast("Recording stopped at the 30-second limit. Review your words before continuing.");
+            await ToggleMicrophoneAsync();
+        });
         Title = "SPEAKCITY AI — practise spoken English";
         Width = 1220;
         Height = 880;
@@ -884,6 +891,8 @@ public sealed class NativeMainWindow : Window
             await TranscribeAsync(wavPath);
             return;
         }
+        // Lucy must not talk into the learner's recording.
+        StopVoice();
         if (_recorder.Start(out string startError))
         {
             SetMicState(recording: true);
@@ -906,7 +915,7 @@ public sealed class NativeMainWindow : Window
             // just so the router can refuse it.
             if (new FileInfo(wavPath).Length > AppRouter.MaxBodyBytes)
             {
-                Notify("That recording was too long. Press Speak again and keep the answer under about a minute.");
+                Notify("That recording was too long. Press Speak again and keep the answer under 30 seconds.");
                 return;
             }
             byte[] audio = await File.ReadAllBytesAsync(wavPath);
@@ -947,6 +956,14 @@ public sealed class NativeMainWindow : Window
 
     private void Speak(string? text) => _currentSpeech = SpeakAsync(text);
 
+    /// <summary>Silences the current line; its remaining sentences are dropped.</summary>
+    private void StopVoice()
+    {
+        _speechGeneration++;
+        _player.Stop();
+        _playing?.TrySetResult(false);
+    }
+
     /// <summary>
     /// Plays a line through the bundled Kokoro voice, sentence by sentence: the next
     /// sentence is synthesised while the current one plays, so Lucy starts talking
@@ -959,9 +976,8 @@ public sealed class NativeMainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(text) || _router is null) return;
         if (text.Length > 1200) text = text[..1200];
+        StopVoice();
         int generation = ++_speechGeneration;
-        _player.Stop();
-        _playing?.TrySetResult(false);
         var chunks = SpeechChunks.Split(text);
         if (chunks.Count == 0) return;
         var started = Stopwatch.StartNew();
@@ -1390,8 +1406,11 @@ public sealed class NativeMainWindow : Window
                 }
             }
             ScrollChatToEnd();
+            // The review is on screen; free the finished conversation in the router.
+            string? finished = _sessionId;
             _sessionId = null;
             _feedbackShown = true;
+            if (finished is not null) _ = CallAsync("DELETE", $"/api/sessions/{finished}");
             SetStatus("Conversation finished. Press Practise again, or go back to the city for another place.");
         }
         catch (OperationCanceledException) { SetStatus("Feedback canceled."); }

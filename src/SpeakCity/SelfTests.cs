@@ -175,6 +175,47 @@ public static class SelfTests
             var lost = await FinishRuns(true);
             Check("Feedback that stays unusable says so instead of passing silently", lost.status == 503 && lost.calls == 2);
 
+            // What the model actually sends: one sentence quoted out of a longer answer, a bad item
+            // ahead of good ones, a reply cut off mid-JSON. None of these may cost the whole review.
+            static JsonObject Fix(string original, string corrected) => new()
+            {
+                ["original"] = original, ["corrected"] = corrected,
+                ["explanation"] = new JsonObject { ["en"] = "e", ["kk"] = "k", ["ru"] = "r" }
+            };
+            async Task<(int status, int calls, int shown, int after)> Review(string said, Func<int, JsonObject> reply)
+            {
+                int calls = 0;
+                Task<JsonObject> Complete(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
+                {
+                    if (!prompt.Contains("grammar teacher", StringComparison.Ordinal))
+                        return Task.FromResult(new JsonObject { ["reply"] = "Noted. What else?" });
+                    calls++;
+                    return Task.FromResult(reply(calls));
+                }
+                using var target = new AppRouter(worker, () => Task.FromResult(false), () => config, Complete);
+                var opened = JsonNode.Parse((await target.HandleAsync("POST", "/api/sessions",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "airport", ["level"] = "A2" }.ToJsonString()))).Body)!;
+                string id = opened["session_id"]!.GetValue<string>();
+                await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
+                    new JsonObject { ["text"] = said, ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                var finish = await target.HandleAsync("POST", $"/api/sessions/{id}/finish",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()));
+                var next = await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
+                    new JsonObject { ["text"] = "One more answer.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                return (finish.Status, calls, finish.Status == 200 ? JsonNode.Parse(finish.Body)!["corrections"]!.AsArray().Count : -1, next.Status);
+            }
+            var partial = await Review("I go to airport yesterday. I want buy ticket to London.",
+                _ => new JsonObject { ["corrections"] = new JsonArray(Fix("I go to airport yesterday", "I went to the airport yesterday.")) });
+            Check("A correction quoting one sentence of a longer answer is kept", partial.status == 200 && partial.calls == 1 && partial.shown == 1);
+            var fourth = await Review("I has a bag. She like tea. They is late.",
+                _ => new JsonObject { ["corrections"] = new JsonArray(Fix("I never said this.", "x"), Fix("I has a bag.", "I have a bag."), Fix("She like tea.", "She likes tea."), Fix("They is late.", "They are late.")) });
+            Check("A valid correction behind an invalid one is not lost", fourth.status == 200 && fourth.shown == 3);
+            var cut = await Review("I want book a room.",
+                call => call == 1 ? throw new ProviderReplyException("cut off") : new JsonObject { ["corrections"] = new JsonArray(Fix("I want book a room.", "I want to book a room.")) });
+            Check("A cut-off review reply is retried once", cut.status == 200 && cut.calls == 2 && cut.shown == 1 && cut.after == 409);
+            var failed = await Review("I want book a room.", _ => mangled.DeepClone().AsObject());
+            Check("A failed review leaves the conversation open", failed.status == 503 && failed.after == 200);
+
             report["passed"] = true;
             report["checks"] = JsonSerializer.SerializeToNode(checks);
             report["remaining"] = "Real API-provider calls, Windows 11 physical microphone, interactive WebView2 UI and installer-on-clean-PC verification remain required.";

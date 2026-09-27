@@ -93,9 +93,11 @@ public sealed class SpeechWorkerClient : IDisposable
 
     public async Task<JsonObject> RequestAsync(string operation, JsonObject? fields = null, CancellationToken ct = default)
     {
+        // The 120 s budget is for this request's own work, not the wait behind earlier ones: a
+        // timeout kills the worker, which would also fail every request queued behind it.
+        await _serial.WaitAsync(ct).ConfigureAwait(false);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(TimeSpan.FromSeconds(120));
-        await _serial.WaitAsync(limit.Token).ConfigureAwait(false);
         try
         {
             EnsureStarted();
