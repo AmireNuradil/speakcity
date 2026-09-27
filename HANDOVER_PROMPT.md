@@ -10,6 +10,18 @@ You are taking over **SPEAKCITY AI**, a Windows 11 desktop app that practices *s
 learners whose English is weak (Kazakh/Russian native speakers). Work autonomously: measure before
 you decide, do not ask which option you would prefer, and leave a written trail of what you proved.
 
+## Latest state (2026-09-27): read `AGENT_STATE.md` section 0 first
+
+PR #1 gives the native window the web version's look: a city map with 8 pins, Lucy portraits,
+chat avatars, a round mic, thinking dots and a toast. It also makes the voice warm-up really load
+Kokoro and Whisper, voices Lucy sentence by sentence, and fixes the audit's review-loss and
+microphone bugs (`docs/CODE_AUDIT.md`: F-01 to F-14, except F-07, which is unmeasured, and the
+open items listed there). Native pictures are JPEG twins compiled into the DLL, because WPF cannot
+decode WebP. The recording cap is now 29 s in the device's format; the worker refuses more than
+30 s, so the old "60 s" never worked. Windows proof for the PR comes from its CI run, which the
+owner must approve. Then check the `speakcity-reports-<run>` artifact: 149 self-test checks,
+22 UI-smoke checks and the `native-ui-*.png` screenshots.
+
 ## What the product is
 
 - **C# / .NET 10 WPF** native window (`--webview` opens an older WebView2 window; both exist).
@@ -51,8 +63,8 @@ python -B tests/speech_worker_test.py                       # Ran 35, OK
 python -B tests/notice_collection_test.py                   # Ran 8, OK
 node --test ui/tests/ui.test.cjs ui/tests/recorder.test.cjs # 39 pass, 0 fail
 & 'C:\Users\Acer\dotnet10\dotnet.exe' build src\SpeakCity\SpeakCity.csproj -c Release   # 0 err, 0 warn
-& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --self-test "$env:TEMP\st.json"  # 132 checks
-& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 11 checks
+& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --self-test "$env:TEMP\st.json"  # 149 checks after PR #1 (134 before)
+& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 22 checks after PR #1 (11 before); also writes native-ui-*.png beside the report
 ```
 
 As of 2026-09-26 all of the above are green, and `out\release\SPEAKCITY-AI-Setup-x64.exe`
