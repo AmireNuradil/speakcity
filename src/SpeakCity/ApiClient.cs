@@ -150,7 +150,7 @@ public sealed class ApiClient
         catch (JsonException)
         {
             // JsonException messages can contain provider-controlled text. Never surface them.
-            throw new InvalidOperationException("The provider returned malformed JSON. Check that the endpoint and model support chat completions with JSON output. If the model ID is an auto-router (for example openrouter/free), choose a specific model instead.");
+            throw new ProviderReplyException("The provider returned malformed JSON. Check that the endpoint and model support chat completions with JSON output. If the model ID is an auto-router (for example openrouter/free), choose a specific model instead.");
         }
         finally
         {
@@ -379,7 +379,7 @@ public sealed class ApiClient
                 throw InvalidReply();
             var reason = finish.GetString();
             if (reason == "length")
-                throw new InvalidOperationException("The provider stopped before finishing its JSON reply. Ask for a shorter reply or increase the token limit.");
+                throw new ProviderReplyException("The provider stopped before finishing its JSON reply. Ask for a shorter reply or increase the token limit.");
             if (reason == "content_filter")
                 throw new InvalidOperationException("The provider declined this request under its content policy. Try a different, appropriate prompt.");
             if (reason != "stop")
@@ -398,7 +398,7 @@ public sealed class ApiClient
             throw InvalidReply();
         using var replyDocument = JsonDocument.Parse(text, JsonOptions);
         if (replyDocument.RootElement.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("The provider returned JSON that was not an object. The selected model must return a JSON object, not a list or plain text.");
+            throw new ProviderReplyException("The provider returned JSON that was not an object. The selected model must return a JSON object, not a list or plain text.");
         RejectDuplicateProperties(replyDocument.RootElement);
         return JsonNode.Parse(text, documentOptions: JsonOptions) as JsonObject ?? throw InvalidReply();
     }
@@ -428,7 +428,7 @@ public sealed class ApiClient
             foreach (var property in element.EnumerateObject())
             {
                 if (!names.Add(property.Name))
-                    throw new InvalidOperationException(AmbiguousReplyMessage);
+                    throw new ProviderReplyException(AmbiguousReplyMessage);
                 RejectDuplicateProperties(property.Value);
             }
         }
@@ -439,7 +439,7 @@ public sealed class ApiClient
         }
     }
 
-    private static InvalidOperationException InvalidReply() => new(
+    private static InvalidOperationException InvalidReply() => new ProviderReplyException(
         "The provider did not return a complete chat-completions JSON reply. Check that the configured endpoint and model support JSON objects. If the model ID is an auto-router (for example openrouter/free), choose a specific model instead. No substitute reply was generated.");
 
     private static bool IsRetryableReply(InvalidOperationException error) =>
@@ -458,3 +458,9 @@ public sealed class ApiClient
         _ => new InvalidOperationException($"The provider returned HTTP {(int)code}. Check your API settings and the provider's chat-completions documentation.")
     };
 }
+
+/// <summary>
+/// The provider answered, but the reply was cut off or malformed. Unlike 401/403/429 or a
+/// timeout, asking once more can succeed, so the end-of-run review retries on this type.
+/// </summary>
+public sealed class ProviderReplyException(string message) : InvalidOperationException(message);

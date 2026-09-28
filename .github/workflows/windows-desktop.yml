@@ -8,10 +8,21 @@ on:
       - '.build/**'
       - 'README.md'
       - 'docs/**'
+  # Pull requests get the same Windows build, so a change is proven before it reaches main.
+  pull_request:
+    paths-ignore:
+      - '.build/**'
+      - 'README.md'
+      - 'docs/**'
 
 permissions:
   contents: write
   actions: read
+
+# Runs for the same pull request write the same evidence files; a newer push supersedes an older run.
+concurrency:
+  group: windows-desktop-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   windows:
@@ -38,6 +49,17 @@ jobs:
             python --version
           }
 
+      - name: Keep the UI screenshots and test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: speakcity-reports-${{ github.run_id }}
+          path: |
+            out/reports/*.png
+            out/reports/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Record build status in the repository
         if: always()
         shell: pwsh
@@ -58,8 +80,9 @@ jobs:
           } | ConvertTo-Json -Depth 4
           $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
           $uri = "https://api.github.com/repos/$env:GITHUB_REPOSITORY/contents/.build/windows-status.json"
-          $body = @{ message = 'Record Windows build status'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($report)); branch = 'main' }
-          $existing = Invoke-WebRequest -Uri $uri -Headers $headers -SkipHttpErrorCheck
+          $branch = @($env:GITHUB_HEAD_REF, $env:GITHUB_REF_NAME, 'main') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+          $body = @{ message = 'Record Windows build status'; content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($report)); branch = $branch }
+          $existing = Invoke-WebRequest -Uri "$($uri)?ref=$([uri]::EscapeDataString($branch))" -Headers $headers -SkipHttpErrorCheck
           if ($existing.StatusCode -eq 200) { $body.sha = ($existing.Content | ConvertFrom-Json).sha }
           elseif ($existing.StatusCode -ne 404) { throw "Cannot inspect build status path: $($existing.StatusCode)" }
           Invoke-RestMethod -Method Put -Uri $uri -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json) | Out-Null

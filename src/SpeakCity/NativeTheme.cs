@@ -13,7 +13,7 @@ namespace SpeakCity;
 ///
 /// Everything in the XAML below is stock WPF markup with StaticResource lookups
 /// that all resolve top-down, so the dictionary cannot fail to load. Anything
-/// that needs a per-item decision (chat bubbles, scenario cards) is built in C#
+/// that needs a per-item decision (chat bubbles, map pins) is built in C#
 /// and only borrows the brushes and styles from here.
 /// </summary>
 public static class NativeTheme
@@ -71,6 +71,11 @@ public static class NativeTheme
     <Setter Property="CornerRadius" Value="20"/>
     <Setter Property="Padding" Value="11,5"/>
     <Setter Property="Margin" Value="0,0,7,7"/>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="Background" Value="#FFD3EBE2"/>
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <Style x:Key="PrimaryButton" TargetType="Button">
@@ -133,27 +138,59 @@ public static class NativeTheme
     </Setter>
   </Style>
 
-  <Style x:Key="MicButton" TargetType="ToggleButton">
-    <Setter Property="Foreground" Value="{StaticResource Teal}"/>
-    <Setter Property="FontWeight" Value="SemiBold"/>
-    <Setter Property="Padding" Value="20,11"/>
+  <Style x:Key="RoundMic" TargetType="ToggleButton">
+    <Setter Property="Foreground" Value="{StaticResource White}"/>
     <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="Width" Value="58"/>
+    <Setter Property="Height" Value="58"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ToggleButton">
-          <Border x:Name="Bd" Background="{StaticResource Mint}"
-                  BorderBrush="{StaticResource Teal}" BorderThickness="1.5"
-                  CornerRadius="22" Padding="{TemplateBinding Padding}">
+          <Grid>
+            <Ellipse x:Name="Ring" Fill="#FFEDF5F2"/>
+            <Ellipse x:Name="Dot" Fill="{StaticResource Teal}" Margin="5"/>
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Dot" Property="Fill" Value="{StaticResource TealDark}"/>
+            </Trigger>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="Ring" Property="Fill" Value="#FFFAE8E1"/>
+              <Setter TargetName="Dot" Property="Fill" Value="#FFB04B3C"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource Ink}"/>
+              <Setter TargetName="Ring" Property="StrokeThickness" Value="2"/>
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Opacity" Value="0.4"/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="LinkButton" TargetType="Button">
+    <Setter Property="Foreground" Value="{StaticResource Teal}"/>
+    <Setter Property="FontSize" Value="11"/>
+    <Setter Property="Cursor" Value="Hand"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Bd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                  CornerRadius="6" Padding="5,2">
+            <ContentPresenter VerticalAlignment="Center"/>
           </Border>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsChecked" Value="True">
-              <Setter TargetName="Bd" Property="Background" Value="{StaticResource Coral}"/>
-              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Coral}"/>
-              <Setter Property="Foreground" Value="{StaticResource White}"/>
-            </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Bd" Property="Opacity" Value="0.9"/>
+              <Setter TargetName="Bd" Property="Background" Value="{StaticResource Mint}"/>
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Teal}"/>
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
@@ -164,42 +201,49 @@ public static class NativeTheme
     </Setter>
   </Style>
 
-  <Style x:Key="PlainList" TargetType="ListBox">
-    <Setter Property="Background" Value="Transparent"/>
-    <Setter Property="BorderThickness" Value="0"/>
-    <Setter Property="Padding" Value="4"/>
-    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-  </Style>
-
-  <Style x:Key="ScenarioItem" TargetType="ListBoxItem">
-    <Setter Property="Margin" Value="0,0,0,8"/>
-    <Setter Property="Padding" Value="0"/>
+  <!-- One place on the city map. Colours and size are set per pin from C#
+       (selected vs not); hover grows it like the web's scale(1.04). -->
+  <Style x:Key="Pin" TargetType="Button">
     <Setter Property="Cursor" Value="Hand"/>
-    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Template">
       <Setter.Value>
-        <ControlTemplate TargetType="ListBoxItem">
-          <Border x:Name="Card" Background="{StaticResource White}"
-                  BorderBrush="{StaticResource Line}" BorderThickness="1"
-                  CornerRadius="12" Padding="13,11">
-            <ContentPresenter/>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Focus" BorderBrush="Transparent" BorderThickness="2" CornerRadius="13" Padding="1">
+            <Grid>
+              <Border x:Name="Shade" Background="{TemplateBinding Background}" CornerRadius="10">
+                <Border.Effect>
+                  <DropShadowEffect Color="#FF122D32" BlurRadius="9" ShadowDepth="3" Direction="270" Opacity="0.18"/>
+                </Border.Effect>
+              </Border>
+              <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10"
+                      Padding="{TemplateBinding Padding}">
+                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+            </Grid>
           </Border>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsMouseOver" Value="True">
-              <Setter TargetName="Card" Property="Background" Value="{StaticResource Hover}"/>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Bd" Property="Opacity" Value="0.88"/>
             </Trigger>
-            <Trigger Property="IsSelected" Value="True">
-              <Setter TargetName="Card" Property="Background" Value="{StaticResource Mint}"/>
-              <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource Teal}"/>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="Focus" Property="BorderBrush" Value="{StaticResource Ink}"/>
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
-  </Style>
-
-  <Style x:Key="ScenarioList" TargetType="ListBox" BasedOn="{StaticResource PlainList}">
-    <Setter Property="ItemContainerStyle" Value="{StaticResource ScenarioItem}"/>
+    <Style.Triggers>
+      <Trigger Property="IsMouseOver" Value="True">
+        <Setter Property="RenderTransform">
+          <Setter.Value>
+            <ScaleTransform ScaleX="1.05" ScaleY="1.05"/>
+          </Setter.Value>
+        </Setter>
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <Style x:Key="InputBox" TargetType="TextBox">

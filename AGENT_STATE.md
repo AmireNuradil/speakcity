@@ -1,5 +1,84 @@
 # AGENT_STATE.md — SPEAKCITY AI takeover checkpoint
 
+## 0. Checkpoint 2026-09-27 — PR #1 (branch `hoplite/megale-polis-dbc1a735`)
+
+Done from a Linux sandbox. Here WPF compiles (`-p:EnableWindowsTargeting=true`) but cannot run.
+Windows proof therefore comes only from the PR's CI run. **That run needs the owner to press
+"Approve and run workflows" on the PR**, because GitHub holds workflows opened by the bot and
+manual dispatch is refused to the bot token (HTTP 403). Expected counts once it runs:
+self-test **149** (was 134), UI smoke **23** (was 11). Treat them as unproven until the run shows them.
+
+**Native window, now like the web version.** The city view has `city` as a map with 8 pins at the
+web's percentages (keyboard-focusable named buttons; the selected pin is teal with a white ring,
+the café's is brick red), plus the Lucy card, the onboarding card and "how it works". The practice
+view has the scene portrait from the catalog `image`, the mission and phrase pills, chat with a 28 px
+Lucy avatar and the web bubble shapes, "Hear again" on each line, a round mic that pulses red
+while recording, "Lucy is thinking…" dots and a toast. "Back to city" keeps an unfinished
+conversation resumable.
+- **WebP decision: (b′).** JPEG twins of `ui/assets/*.webp` are compiled into `SpeakCity.dll` as
+  WPF resources. Generate them with `build/native_images.py` (needs Pillow, a developer tool only).
+  They are pinned in `assets-source/manifest.json` and hash-checked by `windows.ps1`. There is no
+  copy stage, so a re-run cannot collide. The web and its CSP are untouched.
+- **Honest limit:** only airport, café, city and Lucy art exists. Six scenarios show Lucy's portrait,
+  as the web does.
+- First Windows run (36333569149, before the fixes below): build, installer and **self-test
+  145/145** passed. TTS for a whole 3-sentence reply took 1659 ms; its first sentence took
+  488 ms. The UI smoke passed 18 checks, then stopped on voicing: the runner has no audio
+  output, so `MediaPlayer` fails. The smoke now uses stand-in speakers, as it already did
+  for the AI, and additionally checks that the next sentence is ready when the previous one ends.
+- Screenshots: the UI smoke renders `native-ui-city.png`, `native-ui-practice.png` and
+  `native-ui-feedback.png`. The workflow uploads them as the run artifact `speakcity-reports-<run>`.
+  Nobody has looked at them yet.
+
+**Speed (offline-verifiable part only; no API key was available).**
+- The warm-up used to ping only. The ping hashes the ~465 MB of models but loads nothing
+  (`loaded: false`), so Lucy's first line and the first recording paid the model load. The warm-up
+  now synthesises "Hello there." and transcribes it. The UI smoke asserts that both models report
+  `loaded`.
+- Lucy is voiced sentence by sentence (`SpeechChunks`). The next sentence is synthesised while the
+  current one plays, and the audio is cached for replay. Worker requests are never cancelled,
+  because cancelling kills the worker and forces a model reload.
+- The self-test records `timings_ms`: TTS/STT cold vs warm, and a whole reply vs its first sentence.
+  The UI smoke records `greeting_first_voice_ms` and `reply_first_voice_ms`.
+- **Not done:** LLM latency (reasoning off/low, model choice). It needs a key and the `sc-quality`
+  harness. The ≤10 s goal is owner-stated; the AI's share of it is still unmeasured.
+
+**Fixes from the audit (`docs/CODE_AUDIT.md`, written this session):**
+- F-01: the `WAVEHDR[]` array is pinned while the driver owns it, and headers are unprepared on
+  close. The code is right by the WinMM contract, but a real microphone is still needed to see it.
+- F-02: the failure path no longer publishes the unsigned installer from a public repository. The
+  three such public pre-releases were deleted on 2026-09-28 at the owner's request.
+- F-03, F-05, F-06, F-07 in the review:
+  - a quote of one sentence (or without the full stop) is accepted;
+  - every item is validated before the three-item cap;
+  - a cut-off or malformed reply (`ProviderReplyException`) is retried once;
+  - a failed review leaves the conversation open;
+  - the prompt schema is real quoted JSON.
+- F-04: an empty review now shows `noErrors` + `noErrorsNote` instead of "Well done".
+- F-08: the warm-up (above).
+- F-09: the recording cap is 29 s in the device's own format (the worker refuses more than 30 s).
+  The window stops the take itself and says so. **This replaces the old "60 s" rule, which the
+  worker never honoured.**
+- F-10: a failed Send returns the words to the box.
+- F-11: recording silences Lucy.
+- F-12: queue time no longer counts toward the worker's 120 s limit.
+- F-13: temporary TTS files are tracked until they are deleted.
+- F-14: sessions are deleted when a review finishes or another place starts.
+
+**CI:** the workflow now runs for pull requests and uploads the reports and screenshots. Build
+evidence goes to the branch that was built (a PR's head branch), not always `main`. The UI smoke
+guard is raised from 240 s to 420 s.
+
+**Owner decisions still open:**
+1. Approve the PR's workflow run.
+2. ~~Delete the three public `-incomplete` pre-releases?~~ Done 2026-09-28 at the owner's request (releases and tags deleted).
+3. Provide a key (as a secret, never in chat or the repo) so the `sc-quality` and latency harness
+   can measure the AI turn.
+4. Decide on two models: a fast one for dialogue, a stronger one for the review.
+5. Keep the three-correction cap per review?
+
+---
+
 Checkpoint written: **2026-09-25 (this session)**. Previous checkpoint: 2026-09-21/22.
 Working repo: `C:\Users\Acer\Desktop\english` — this **is** the `AmireNuradil/speakcity` clone
 (the folder name is stale; the git remote proves it). Never work in `C:\Users\Acer` (stray home repo).

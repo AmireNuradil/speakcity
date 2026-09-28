@@ -21,7 +21,9 @@ speakcity/
 ├── src/SpeakCity/          the Windows app itself (C#, WPF; native window by default)
 │   ├── NativeMainWindow.cs     the default window: scenarios, chat, mic toggle, voice (no browser)
 │   ├── WavRecorder.cs          microphone capture through Windows MCI, 16 kHz mono PCM WAV
-│   ├── NativeSmoke.cs          headless --ui-smoke of the native path (real router, real voice)
+│   ├── NativeSmoke.cs          --ui-smoke: real router + voice, then opens the window and renders PNGs
+│   ├── NativeAssets.cs         native pictures: JPEG twins of ui/assets compiled into the DLL (WPF has no WebP)
+│   ├── SpeechChunks.cs         splits Lucy's line so her first sentence plays while the rest is synthesised
 │   ├── MainWindow.cs           the optional WebView2 window (SpeakCity.exe --webview) and --diagnose
 │   ├── AppRouter.cs            the /api/* routes the UI talks to (in-memory sessions)
 │   ├── ApiClient.cs            talks to your configured AI provider
@@ -73,7 +75,7 @@ The app is **built but not yet released**. Concretely:
 
 - ✅ Everything up to and including the packaged self-test passes on the Windows build runner: the C# app compiles, eSpeak NG is built from pinned source, the speech worker freezes, Kokoro speaks, Whisper transcribes, and all eight scenarios pass the conversation/feedback/vocabulary checks.
 - ✅ The blocker that stopped packaging for a while (a false "licence file missing" report for `setuptools`) is fixed in `build/collect_notices.py`, with `tests/notice_collection_test.py` pinning both the false positive and the fail-closed case.
-- ⚠️ No installer has been published from a fully green run yet, so the [Releases page](https://github.com/AmireNuradil/speakcity/releases) is still empty. If it stays empty, that means "not built yet" - not "lost".
+- ⚠️ No installer has been published from a fully green run, so the [Releases page](https://github.com/AmireNuradil/speakcity/releases) is empty. Three earlier `desktop-preview-0.2.0-*-incomplete` pre-releases (an unsigned installer that failed verification, published by the build's failure path despite the public-repository rule) were deleted on 2026-09-28 with their tags; that path is now gated too (`docs/CODE_AUDIT.md` F-02). An empty page means "not built yet" - not "lost".
 - ⏳ Still genuinely unproven, and nobody should claim otherwise: a real microphone on a real Windows 11 machine, and installing on a clean PC. The build runs on Windows *Server*, which has no microphone; the packaged `--ui-smoke` check drives the native path headlessly (real router, real bundled Kokoro voice, scripted AI completion), and it is the optional WebView2 window that reports `skipped (non-interactive-session)` on an agent with no desktop to paint on.
 - ✅ A live AI provider call is verified on a real Windows 11 PC through the app's own `ApiClient` and the saved DPAPI configuration: the connection test, a conversation turn and the end-of-run corrections all returned usable JSON. It stays a manual check rather than a build gate because it needs owner-supplied credentials.
 - ✅ The default window is native WPF and needs no browser component; the WebView2 interface is still available with `SpeakCity.exe --webview` for comparison. A start that cannot finish no longer hangs: the WebView2 path bounds its start-up, retries a locked profile once in a temporary folder, and shows what to do instead of sitting on "Opening SPEAKCITY...". `%LOCALAPPDATA%\SpeakCity\startup.json` and `SpeakCity.exe --diagnose <file>` exist so "it does not open" can be answered with facts.

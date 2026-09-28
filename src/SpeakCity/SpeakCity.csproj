@@ -19,6 +19,15 @@
     <Content Include="../../ui/**/*" Exclude="../../ui/tests/**;../../ui/README.md" Link="ui/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../content/scenarios.json" Link="content/scenarios.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- WPF has no WebP decoder: JPEG twins of ui/assets, compiled into the assembly
+         (build/native_images.py). Listed one by one so a missing file breaks the build. -->
+    <None Remove="Assets/**" />
+    <Resource Include="Assets/airport.jpg" />
+    <Resource Include="Assets/cafe.jpg" />
+    <Resource Include="Assets/city.jpg" />
+    <Resource Include="Assets/lucy.jpg" />
+  </ItemGroup>
   <ItemGroup Condition="'$(SPEAKCITY_STAGE_SPEECH)' != 'false'">
     <!-- The frozen worker and its models come from the canonical build outputs
          (out/worker from PyInstaller, out/models verified against

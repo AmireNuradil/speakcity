@@ -20,8 +20,11 @@ public sealed class WavRecorder : IDisposable
     private const int BitsPerSample = 16;
     private const int BufferBytes = 4096;
     private const int BufferCount = 8;
-    /// <summary>Sixty seconds of the target format stays inside the router's body limit.</summary>
-    private const long MaxPcmBytes = TargetRate * 2 * 60;
+    /// <summary>
+    /// The speech worker refuses audio longer than 30 s. The cap is counted in seconds of the
+    /// device's own format: counted in bytes, a 48 kHz stereo webcam stopped after 10 s.
+    /// </summary>
+    public const int MaxSeconds = 29;
     /// <summary>Below this peak there is no speech to rescue, only room hiss.</summary>
     private const int QuietFloor = 1200;
 
@@ -37,11 +40,18 @@ public sealed class WavRecorder : IDisposable
     private AutoResetEvent? _done;
     private Thread? _pump;
     private WAVEHDR[]? _headers;
+    // The driver keeps a pointer to each header and writes its flags asynchronously, so the
+    // array must not move while the device owns it (P/Invoke pins a ref only during the call).
+    private GCHandle _headerPin;
     private GCHandle[] _pins = [];
     private uint _captureRate;
     private ushort _captureChannels;
+    private long _maxCaptureBytes;
     private bool _recording;
     private string? _pendingPath;
+
+    /// <summary>Raised on the capture thread when a take reaches <see cref="MaxSeconds"/>.</summary>
+    public event Action? LimitReached;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct WAVEHDR
@@ -84,6 +94,7 @@ public sealed class WavRecorder : IDisposable
     [DllImport("winmm.dll")] private static extern int waveInReset(IntPtr handle);
     [DllImport("winmm.dll")] private static extern int waveInClose(IntPtr handle);
     [DllImport("winmm.dll")] private static extern int waveInPrepareHeader(IntPtr handle, ref WAVEHDR header, int size);
+    [DllImport("winmm.dll")] private static extern int waveInUnprepareHeader(IntPtr handle, ref WAVEHDR header, int size);
     [DllImport("winmm.dll")] private static extern int waveInAddBuffer(IntPtr handle, ref WAVEHDR header, int size);
 
     /// <summary>
@@ -161,7 +172,9 @@ public sealed class WavRecorder : IDisposable
     private void PrepareBuffers()
     {
         AutoResetEvent signal = _done!;
+        _maxCaptureBytes = (long)_captureRate * _captureChannels * (BitsPerSample / 8) * MaxSeconds;
         _headers = new WAVEHDR[BufferCount];
+        _headerPin = GCHandle.Alloc(_headers, GCHandleType.Pinned);
         _pins = new GCHandle[BufferCount];
         for (int index = 0; index < BufferCount; index++)
         {
@@ -196,11 +209,18 @@ public sealed class WavRecorder : IDisposable
                     if ((header.dwFlags & HeaderDone) == 0 || header.dwBytesRecorded == 0) continue;
                     byte[] chunk = new byte[header.dwBytesRecorded];
                     Marshal.Copy(header.lpData, chunk, 0, chunk.Length);
+                    bool full;
                     lock (_pcm)
                     {
-                        // A forgotten microphone must not grow without bound.
-                        if (_pcm.Length >= MaxPcmBytes) { waveInStop(_handle); return; }
-                        _pcm.Write(chunk, 0, chunk.Length);
+                        full = _pcm.Length >= _maxCaptureBytes;
+                        if (!full) _pcm.Write(chunk, 0, chunk.Length);
+                    }
+                    if (full)
+                    {
+                        // The take is at the worker's limit: stop, and let the window say so.
+                        waveInStop(_handle);
+                        LimitReached?.Invoke();
+                        return;
                     }
                     header.dwFlags &= ~HeaderDone;
                     if (waveInAddBuffer(_handle, ref header, HeaderSize) != 0) return;
@@ -358,13 +378,19 @@ public sealed class WavRecorder : IDisposable
     /// <summary>Releases the device and every buffer. The caller must hold the gate.</summary>
     private void Abandon()
     {
+        var headers = _headers;
         _headers = null;
         if (_handle != IntPtr.Zero)
         {
             waveInReset(_handle);
+            // After the reset every buffer is back from the driver; unprepare before the memory goes.
+            if (headers is not null)
+                for (int index = 0; index < headers.Length; index++)
+                    if (headers[index].lpData != IntPtr.Zero) waveInUnprepareHeader(_handle, ref headers[index], HeaderSize);
             waveInClose(_handle);
             _handle = IntPtr.Zero;
         }
+        if (_headerPin.IsAllocated) _headerPin.Free();
         foreach (GCHandle pin in _pins) if (pin.IsAllocated) pin.Free();
         _pins = [];
         _done?.Dispose();

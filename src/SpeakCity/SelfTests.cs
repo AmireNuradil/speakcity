@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -21,6 +22,20 @@ public static class SelfTests
         try
         {
             Check("All packaged interface assets exist", new[] { "index.html", "app.js", "app.css", "i18n.js", "recorder.js", "recorder-worklet.js", "scenario-catalog.js" }.All(f => File.Exists(Path.Combine(AppContext.BaseDirectory, "ui", f))));
+            // The native window's pictures: every scenario's picture must decode, and a missing
+            // one must fail here instead of showing up as an empty grey card on a learner's PC.
+            var catalog = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "content", "scenarios.json")))!.AsObject();
+            foreach (var pair in catalog)
+            {
+                var picture = NativeAssets.Load(NativeAssets.ForScenario(pair.Value?["image"]?.GetValue<string>()));
+                Check($"{pair.Key}: native scene picture decodes", picture.PixelWidth > 0 && new System.Windows.Controls.Image { Source = picture }.Source is not null);
+            }
+            Check("Native city map and Lucy portrait decode", NativeAssets.Load(NativeAssets.CityPicture).PixelWidth > 0 && NativeAssets.Load(NativeAssets.LucyPicture).PixelWidth > 0);
+            bool missingReported;
+            try { NativeAssets.Load("not-packaged.jpg"); missingReported = false; }
+            catch (InvalidOperationException) { missingReported = true; }
+            Check("A missing native picture fails loudly", missingReported);
+            Check("Lucy's lines split into sentences without losing words", ChunksKeepWords());
             // Recorded, not asserted: these describe the machine, and a build agent
             // legitimately differs from a learner's desktop. They exist so a failed or
             // skipped window test can be read as an environment fact, not a guess.
@@ -45,13 +60,30 @@ public static class SelfTests
             bool frozen = ping["frozen"]?.GetValue<bool>() ?? ping["is_frozen"]?.GetValue<bool>() ?? false;
             report["worker_ping"] = ping.DeepClone();
             Check("Speech runs as frozen Windows executable", frozen);
+            var clock = Stopwatch.StartNew();
             var spoken = await worker.RequestAsync("tts", new JsonObject { ["text"] = "I am flying to London and I have one suitcase.", ["voice"] = "american", ["speed"] = .95 });
+            var timings = new JsonObject { ["tts_first_call_ms"] = clock.ElapsedMilliseconds };
             byte[] audio = Convert.FromBase64String(spoken["audio_base64"]!.GetValue<string>());
             Check("Actual Kokoro returns WAV audio", audio.Length > 44 && Encoding.ASCII.GetString(audio, 0, 4) == "RIFF");
+            clock.Restart();
             var heard = await worker.RequestAsync("stt", new JsonObject { ["audio_base64"] = Convert.ToBase64String(audio) });
+            timings["stt_first_call_ms"] = clock.ElapsedMilliseconds;
             string text = heard["text"]!.GetValue<string>();
             Check("Actual Whisper recognizes synthetic speech", text.Contains("London", StringComparison.OrdinalIgnoreCase) && text.Contains("suitcase", StringComparison.OrdinalIgnoreCase));
             report["synthetic_speech_transcript"] = text;
+            // Recorded, not asserted (machine-dependent): what sentence-by-sentence voicing saves
+            // on this CPU, and what a warm transcription costs once the models are loaded.
+            const string reply = "That sounds lovely, thank you. We have a quiet table by the window. Would you like to start with a drink while you look at the menu?";
+            clock.Restart();
+            await worker.RequestAsync("tts", new JsonObject { ["text"] = reply, ["voice"] = "american", ["speed"] = .95 });
+            timings["tts_warm_whole_reply_ms"] = clock.ElapsedMilliseconds;
+            clock.Restart();
+            await worker.RequestAsync("tts", new JsonObject { ["text"] = SpeechChunks.Split(reply)[0], ["voice"] = "american", ["speed"] = .95 });
+            timings["tts_warm_first_sentence_ms"] = clock.ElapsedMilliseconds;
+            clock.Restart();
+            await worker.RequestAsync("stt", new JsonObject { ["audio_base64"] = Convert.ToBase64String(audio) });
+            timings["stt_warm_ms"] = clock.ElapsedMilliseconds;
+            report["timings_ms"] = timings;
             // The learner speaks quietly on purpose; the capture has to lift that without turning an
             // empty room into invented speech.
             static byte[] Tone(int amplitude, int frames)
@@ -143,6 +175,47 @@ public static class SelfTests
             var lost = await FinishRuns(true);
             Check("Feedback that stays unusable says so instead of passing silently", lost.status == 503 && lost.calls == 2);
 
+            // What the model actually sends: one sentence quoted out of a longer answer, a bad item
+            // ahead of good ones, a reply cut off mid-JSON. None of these may cost the whole review.
+            static JsonObject Fix(string original, string corrected) => new()
+            {
+                ["original"] = original, ["corrected"] = corrected,
+                ["explanation"] = new JsonObject { ["en"] = "e", ["kk"] = "k", ["ru"] = "r" }
+            };
+            async Task<(int status, int calls, int shown, int after)> Review(string said, Func<int, JsonObject> reply)
+            {
+                int calls = 0;
+                Task<JsonObject> Complete(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
+                {
+                    if (!prompt.Contains("grammar teacher", StringComparison.Ordinal))
+                        return Task.FromResult(new JsonObject { ["reply"] = "Noted. What else?" });
+                    calls++;
+                    return Task.FromResult(reply(calls));
+                }
+                using var target = new AppRouter(worker, () => Task.FromResult(false), () => config, Complete);
+                var opened = JsonNode.Parse((await target.HandleAsync("POST", "/api/sessions",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "airport", ["level"] = "A2" }.ToJsonString()))).Body)!;
+                string id = opened["session_id"]!.GetValue<string>();
+                await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
+                    new JsonObject { ["text"] = said, ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                var finish = await target.HandleAsync("POST", $"/api/sessions/{id}/finish",
+                    Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()));
+                var next = await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
+                    new JsonObject { ["text"] = "One more answer.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                return (finish.Status, calls, finish.Status == 200 ? JsonNode.Parse(finish.Body)!["corrections"]!.AsArray().Count : -1, next.Status);
+            }
+            var partial = await Review("I go to airport yesterday. I want buy ticket to London.",
+                _ => new JsonObject { ["corrections"] = new JsonArray(Fix("I go to airport yesterday", "I went to the airport yesterday.")) });
+            Check("A correction quoting one sentence of a longer answer is kept", partial.status == 200 && partial.calls == 1 && partial.shown == 1);
+            var fourth = await Review("I has a bag. She like tea. They is late.",
+                _ => new JsonObject { ["corrections"] = new JsonArray(Fix("I never said this.", "x"), Fix("I has a bag.", "I have a bag."), Fix("She like tea.", "She likes tea."), Fix("They is late.", "They are late.")) });
+            Check("A valid correction behind an invalid one is not lost", fourth.status == 200 && fourth.shown == 3);
+            var cut = await Review("I want book a room.",
+                call => call == 1 ? throw new ProviderReplyException("cut off") : new JsonObject { ["corrections"] = new JsonArray(Fix("I want book a room.", "I want to book a room.")) });
+            Check("A cut-off review reply is retried once", cut.status == 200 && cut.calls == 2 && cut.shown == 1 && cut.after == 409);
+            var failed = await Review("I want book a room.", _ => mangled.DeepClone().AsObject());
+            Check("A failed review leaves the conversation open", failed.status == 503 && failed.after == 200);
+
             report["passed"] = true;
             report["checks"] = JsonSerializer.SerializeToNode(checks);
             report["remaining"] = "Real API-provider calls, Windows 11 physical microphone, interactive WebView2 UI and installer-on-clean-PC verification remain required.";
@@ -159,5 +232,15 @@ public static class SelfTests
             await File.WriteAllTextAsync(reportPath, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             return 1;
         }
+    }
+
+    private static bool ChunksKeepWords()
+    {
+        const string reply = "That sounds lovely, thank you. We have a quiet table by the window. Would you like a drink first?";
+        var parts = SpeechChunks.Split(reply);
+        return parts.Count == 3 && string.Join(" ", parts) == reply
+            && SpeechChunks.Split("OK. Great! What is your name, please?").Count == 1
+            && SpeechChunks.Split("No punctuation at all here").Count == 1
+            && SpeechChunks.Split("   ").Count == 0;
     }
 }

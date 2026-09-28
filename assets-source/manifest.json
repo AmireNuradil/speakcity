@@ -23,5 +23,25 @@
     "encoded": "assets-source/App.ico.b64",
     "output": "src/SpeakCity/App.ico",
     "sha256": "5fe36c7ac5abd382e8e34b91a78dac44ff5d27466022b988bc5e7c8e8cd013c6"
+  },
+  {
+    "encoded": "assets-source/airport.jpg.b64",
+    "output": "src/SpeakCity/Assets/airport.jpg",
+    "sha256": "09681dd55920c46bb5551ea23836884c852b73d6e84dc0d1575694d7d08e417e"
+  },
+  {
+    "encoded": "assets-source/cafe.jpg.b64",
+    "output": "src/SpeakCity/Assets/cafe.jpg",
+    "sha256": "f6878cf12281066227f8128cde33d15d4ce57af68a35ab1bafdf0e36331653af"
+  },
+  {
+    "encoded": "assets-source/city.jpg.b64",
+    "output": "src/SpeakCity/Assets/city.jpg",
+    "sha256": "2475ad0bc7c03bfd5e6150b90192051c07033b6e297aea9e25496d83e6811869"
+  },
+  {
+    "encoded": "assets-source/lucy.jpg.b64",
+    "output": "src/SpeakCity/Assets/lucy.jpg",
+    "sha256": "9a2b024d7cea244b4ce046b5cac326142c2570d17e464b4efc2ab1c08a0d3436"
   }
 ]
