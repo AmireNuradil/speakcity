@@ -46,8 +46,8 @@ conversation resumable.
 **Fixes from the audit (`docs/CODE_AUDIT.md`, written this session):**
 - F-01: the `WAVEHDR[]` array is pinned while the driver owns it, and headers are unprepared on
   close. The code is right by the WinMM contract, but a real microphone is still needed to see it.
-- F-02: the failure path no longer publishes the unsigned installer from a public repository. Three
-  such public pre-releases already exist; deleting them is the owner's call.
+- F-02: the failure path no longer publishes the unsigned installer from a public repository. The
+  three such public pre-releases were deleted on 2026-09-28 at the owner's request.
 - F-03, F-05, F-06, F-07 in the review:
   - a quote of one sentence (or without the full stop) is accepted;
   - every item is validated before the three-item cap;
@@ -71,7 +71,7 @@ guard is raised from 240 s to 420 s.
 
 **Owner decisions still open:**
 1. Approve the PR's workflow run.
-2. Delete the three public `-incomplete` pre-releases?
+2. ~~Delete the three public `-incomplete` pre-releases?~~ Done 2026-09-28 at the owner's request (releases and tags deleted).
 3. Provide a key (as a secret, never in chat or the repo) so the `sc-quality` and latency harness
    can measure the AI turn.
 4. Decide on two models: a fast one for dialogue, a stronger one for the review.
