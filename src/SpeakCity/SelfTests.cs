@@ -182,7 +182,7 @@ public static class SelfTests
                 ["original"] = original, ["corrected"] = corrected,
                 ["explanation"] = new JsonObject { ["en"] = "e", ["kk"] = "k", ["ru"] = "r" }
             };
-            async Task<(int status, int calls, int shown, int after)> Review(string said, Func<int, JsonObject> reply)
+            async Task<(int status, int calls, int shown, int after)> Review(string said, Func<int, JsonObject> reply, string depth = "focused")
             {
                 int calls = 0;
                 Task<JsonObject> Complete(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
@@ -199,7 +199,7 @@ public static class SelfTests
                 await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
                     new JsonObject { ["text"] = said, ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
                 var finish = await target.HandleAsync("POST", $"/api/sessions/{id}/finish",
-                    Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()));
+                    Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en", ["depth"] = depth }.ToJsonString()));
                 var next = await target.HandleAsync("POST", $"/api/sessions/{id}/turn", Encoding.UTF8.GetBytes(
                     new JsonObject { ["text"] = "One more answer.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
                 return (finish.Status, calls, finish.Status == 200 ? JsonNode.Parse(finish.Body)!["corrections"]!.AsArray().Count : -1, next.Status);
@@ -215,6 +215,114 @@ public static class SelfTests
             Check("A cut-off review reply is retried once", cut.status == 200 && cut.calls == 2 && cut.shown == 1 && cut.after == 409);
             var failed = await Review("I want book a room.", _ => mangled.DeepClone().AsObject());
             Check("A failed review leaves the conversation open", failed.status == 503 && failed.after == 200);
+
+            // What the learner chooses in Settings: every CEFR level shapes Lucy's instructions, and a
+            // thorough review keeps more corrections than a focused one.
+            string? levelPrompt = null;
+            Task<JsonObject> LevelComplete(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
+            {
+                if (!prompt.Contains("grammar teacher", StringComparison.Ordinal)) levelPrompt = prompt;
+                return Task.FromResult(new JsonObject { ["reply"] = "Noted. What else?" });
+            }
+            using (var levels = new AppRouter(worker, () => Task.FromResult(false), () => config, LevelComplete))
+            {
+                bool allLevels = true;
+                foreach (string level in AppPreferences.Levels)
+                {
+                    var opened = await levels.HandleAsync("POST", "/api/sessions", Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "cafe", ["level"] = level }.ToJsonString()));
+                    string sid = JsonNode.Parse(opened.Body)?["session_id"]?.GetValue<string>() ?? "";
+                    await levels.HandleAsync("POST", $"/api/sessions/{sid}/turn", Encoding.UTF8.GetBytes(new JsonObject { ["text"] = "A tea, please.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                    allLevels &= opened.Status == 200 && levelPrompt?.Contains(AppRouter.LevelGuidance[level], StringComparison.Ordinal) == true;
+                    await levels.HandleAsync("DELETE", $"/api/sessions/{sid}", []);
+                }
+                Check("Every CEFR level from A1 to C2 shapes Lucy's instructions", allLevels && AppRouter.LevelGuidance.Count == AppPreferences.Levels.Count);
+                var unknown = await levels.HandleAsync("POST", "/api/sessions", Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "cafe", ["level"] = "B3" }.ToJsonString()));
+                Check("An unknown level is refused", unknown.Status == 422);
+            }
+            const string sixMistakes = "I has a bag. She like tea. They is late. He go home. We was happy. It are cold.";
+            JsonObject SixFixes(int _) => new()
+            {
+                ["corrections"] = new JsonArray(Fix("I has a bag.", "I have a bag."), Fix("She like tea.", "She likes tea."), Fix("They is late.", "They are late."),
+                    Fix("He go home.", "He goes home."), Fix("We was happy.", "We were happy."), Fix("It are cold.", "It is cold."))
+            };
+            var focused = await Review(sixMistakes, SixFixes);
+            var thorough = await Review(sixMistakes, SixFixes, "thorough");
+            Check("A focused review keeps three corrections, a thorough one five", focused.shown == 3 && thorough.shown == 5);
+            var unknownDepth = await Review("I want book a room.", _ => new JsonObject { ["corrections"] = new JsonArray() }, "deep");
+            Check("An unknown review type is refused", unknownDepth.status == 422);
+
+            // The Feedback page's word list: what the learner said, apart from what only Lucy said.
+            Task<JsonObject> Quiet(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct) =>
+                Task.FromResult(prompt.Contains("grammar teacher", StringComparison.Ordinal)
+                    ? new JsonObject { ["corrections"] = new JsonArray() }
+                    : new JsonObject { ["reply"] = "Lovely. Anything else?" });
+            using (var words = new AppRouter(worker, () => Task.FromResult(false), () => config, Quiet))
+            {
+                var opened = JsonNode.Parse((await words.HandleAsync("POST", "/api/sessions", Encoding.UTF8.GetBytes(new JsonObject { ["scenario"] = "hotel", ["level"] = "A2" }.ToJsonString()))).Body)!;
+                string sid = opened["session_id"]!.GetValue<string>();
+                await words.HandleAsync("POST", $"/api/sessions/{sid}/turn", Encoding.UTF8.GetBytes(new JsonObject { ["text"] = "I need a room for one night.", ["request_id"] = Guid.NewGuid().ToString() }.ToJsonString()));
+                var review = JsonNode.Parse((await words.HandleAsync("POST", $"/api/sessions/{sid}/finish", Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()))).Body)!;
+                var vocabulary = review["vocabulary"]!.AsArray().OfType<JsonObject>().ToDictionary(word => word["word"]!.GetValue<string>());
+                Check("Words the learner said are told apart from words only Lucy said",
+                    vocabulary["room"]["used_by_learner"]!.GetValue<bool>() && vocabulary["night"]["used_by_learner"]!.GetValue<bool>()
+                    && vocabulary["reservation"]["encountered"]!.GetValue<bool>() && !vocabulary["reservation"]["used_by_learner"]!.GetValue<bool>());
+            }
+
+            // Preferences and the review history live in a scratch folder here, never the learner's own.
+            string scratch = Path.Combine(Path.GetTempPath(), "speakcity-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string prefsPath = Path.Combine(scratch, "preferences.json");
+                new AppPreferences { Level = "C1", FeedbackLanguage = "kk", FeedbackDepth = "thorough" }.Save(prefsPath);
+                var loaded = AppPreferences.Load(prefsPath);
+                Check("Preferences survive a restart", loaded.Level == "C1" && loaded.FeedbackLanguage == "kk" && loaded.FeedbackDepth == "thorough");
+                File.WriteAllText(prefsPath, "{\"level\":\"C9\",\"feedback_language\":7}");
+                var odd = AppPreferences.Load(prefsPath);
+                File.WriteAllText(prefsPath, "{not json");
+                var broken = AppPreferences.Load(prefsPath);
+                Check("Unknown or unreadable preferences fall back to the defaults", odd.Level == "A2" && odd.FeedbackLanguage == "en" && broken.Level == "A2");
+
+                string historyPath = Path.Combine(scratch, "feedback-history.json");
+                var history = new FeedbackHistory(historyPath);
+                for (int index = 0; index < FeedbackHistory.MaxEntries + 2; index++)
+                    history.Add(new JsonObject
+                    {
+                        ["scenario"] = "cafe", ["corrections"] = new JsonArray(), ["vocabulary"] = new JsonArray(),
+                        ["messages"] = new JsonArray(JsonValue.Create("conversation text is not kept"))
+                    }, $"Café {index}", "A2", DateTime.UtcNow);
+                var reloaded = new FeedbackHistory(historyPath);
+                Check("Feedback history keeps the newest reviews, capped, across a restart",
+                    reloaded.Entries.Count == FeedbackHistory.MaxEntries && reloaded.Entries[0]["title"]!.GetValue<string>() == $"Café {FeedbackHistory.MaxEntries + 1}");
+                Check("Feedback history stores the review, not the conversation", !File.ReadAllText(historyPath).Contains("conversation text is not kept", StringComparison.Ordinal));
+                reloaded.Clear();
+                Check("Clearing feedback history empties it for good", new FeedbackHistory(historyPath).Entries.Count == 0);
+            }
+            finally
+            {
+                try { Directory.Delete(scratch, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+
+            // Lucy's voice is one continuous stream: Kokoro's WAV must read as PCM, and the pause
+            // between sentences is exactly the configured silence.
+            Check("Kokoro's WAV is read as 24 kHz mono 16-bit PCM",
+                WavAudio.TryRead(audio, out var voiceFormat, out var voicePcm) && voiceFormat == new WavFormat(24000, 1, 16) && voicePcm.Length == audio.Length - 44);
+            byte[] pauseBytes = voiceFormat.Silence(NativeMainWindow.SentencePause);
+            Check("The pause between sentences is silence of the configured length",
+                (voiceFormat.Duration(pauseBytes.Length) - NativeMainWindow.SentencePause).Duration() < TimeSpan.FromMilliseconds(1) && Array.TrueForAll(pauseBytes, value => value == 0));
+            TimeSpan Ms(int value) => TimeSpan.FromMilliseconds(value);
+            var p = NativeMainWindow.SentencePause;
+            var onTime = SentencePacing.Next(Ms(1000), Ms(1500), first: false, p);
+            var late = SentencePacing.Next(Ms(1600), Ms(1500), first: false, p);
+            var veryLate = SentencePacing.Next(Ms(3000), Ms(1500), first: false, p);
+            Check("A sentence that is ready in time follows after exactly the pause",
+                onTime.Silence == p && onTime.Start == Ms(1500) + p && onTime.AlreadySilent == TimeSpan.Zero);
+            Check("A sentence that was not ready in time adds no pause on top of the wait",
+                late.Silence == p - Ms(100) && late.Start == Ms(1500) + p && veryLate.Silence == TimeSpan.Zero && veryLate.Start == Ms(3000));
+            bool device;
+            using (var output = new WaveOutVoice()) device = output.Open(voiceFormat);
+            // Recorded, not asserted: a build agent has no speakers, a learner's PC does.
+            report["voice_output_device"] = device;
+            checks.Add("The voice output opens, or reports that this PC has none, without failing");
 
             report["passed"] = true;
             report["checks"] = JsonSerializer.SerializeToNode(checks);

@@ -21,7 +21,7 @@ namespace SpeakCity;
 /// Like the web pages it mirrors, the window has two views: the city (map with
 /// eight pins, Lucy, set-up) and the practice screen (scene portrait and chat).
 /// </summary>
-public sealed class NativeMainWindow : Window
+public sealed partial class NativeMainWindow : Window
 {
     private const double MapWidth = 1000;
     private const double MapHeight = 558;
@@ -50,7 +50,10 @@ public sealed class NativeMainWindow : Window
 
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string, IReadOnlyList<(string Role, string Content)>, int, CancellationToken, Task<JsonObject>>? _completeOverride;
-    private readonly Func<byte[], Task<bool>>? _playOverride;
+    private readonly IVoiceOutput _voiceOut;
+    private readonly string _prefsPath;
+    private readonly AppPreferences _prefs;
+    private readonly FeedbackHistory _history;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ApiConfig _config;
     private AppRouter? _router;
@@ -81,12 +84,11 @@ public sealed class NativeMainWindow : Window
     private readonly TextBlock _status = new();
     private readonly Button _startButton = new();
     private readonly Button _restartButton = new();
-    private readonly Button _backButton = new();
+    private readonly Button _homeNav = new();
+    private readonly Button _settingsNav = new();
+    private readonly TextBlock _practiceSummary = new();
     private readonly Button _sendButton = new();
     private readonly Button _finishButton = new();
-    private readonly Button _configureButton = new();
-    private readonly ComboBox _level = new();
-    private readonly ComboBox _language = new();
     private readonly ToggleButton _micButton = new();
     private readonly ScaleTransform _micPulse = new(1, 1);
     private readonly TextBlock _micLabel = new();
@@ -112,6 +114,12 @@ public sealed class NativeMainWindow : Window
     private readonly Dictionary<string, byte[]> _voiceCache = new(StringComparer.Ordinal);
     private readonly Queue<string> _voiceCacheOrder = new();
     private TaskCompletionSource<bool>? _playing;
+    private readonly Dictionary<string, Task<(byte[]? Audio, string Failure)>> _synthesising = new(StringComparer.Ordinal);
+    // A short, natural breath between two of Lucy's sentences; the output plays everything else back to back.
+    internal static readonly TimeSpan SentencePause = TimeSpan.FromMilliseconds(220);
+    private readonly Stopwatch _voiceClock = Stopwatch.StartNew();
+    private TimeSpan _voiceEnd;
+    private bool _voiceStreamUnavailable;
     private int _speechGeneration;
     private int _voicedSentences;
     private int _playbackFailures;
@@ -138,14 +146,18 @@ public sealed class NativeMainWindow : Window
 
     /// <param name="config">Smoke-test hook: settings to use instead of the saved DPAPI file.</param>
     /// <param name="complete">Smoke-test hook: a scripted AI completion; the app itself never passes one.</param>
-    /// <param name="play">Smoke-test hook: stands in for the speakers on a build agent that has none.</param>
+    /// <param name="voice">Smoke-test hook: stands in for the speakers on a build agent that has none.</param>
+    /// <param name="storageRoot">Smoke-test hook: keeps test preferences and reviews out of the learner's own folder.</param>
     internal NativeMainWindow(ApiConfig? config,
         Func<string, IReadOnlyList<(string Role, string Content)>, int, CancellationToken, Task<JsonObject>>? complete,
-        Func<byte[], Task<bool>>? play = null)
+        IVoiceOutput? voice = null, string? storageRoot = null)
     {
         _config = config ?? ApiConfigStore.Load();
         _completeOverride = complete;
-        _playOverride = play;
+        _voiceOut = voice ?? new WaveOutVoice();
+        _prefsPath = storageRoot is null ? AppPreferences.DefaultPath : Path.Combine(storageRoot, "preferences.json");
+        _prefs = AppPreferences.Load(_prefsPath);
+        _history = new FeedbackHistory(storageRoot is null ? FeedbackHistory.DefaultPath : Path.Combine(storageRoot, "feedback-history.json"));
         AppStartup.Note("startup", "native-window", "no browser component required");
         // Every spoken sentence is a temporary WAV; they are deleted as soon as the player lets go.
         _player.MediaEnded += (_, _) => { _playing?.TrySetResult(true); RetireSpokenFiles(); };
@@ -185,6 +197,7 @@ public sealed class NativeMainWindow : Window
         BuildPracticeView();
         body.Children.Add(_homeView);
         body.Children.Add(_practiceView);
+        body.Children.Add(_pageHost);
         shell.Children.Add(body);
 
         // The root carries the background so a rendered snapshot matches the window.
@@ -192,7 +205,7 @@ public sealed class NativeMainWindow : Window
         root.Children.Add(shell);
         root.Children.Add(BuildToast());
         Content = root;
-        ShowView(practice: false);
+        Navigate("home");
 
         Loaded += async (_, _) => await InitializeAsync();
         Closing += (_, _) =>
@@ -205,6 +218,7 @@ public sealed class NativeMainWindow : Window
             _router?.Dispose();
             _recorder.Dispose();
             _player.Close();
+            _voiceOut.Dispose();
             RetireSpokenFiles();
         };
         UpdateButtons();
@@ -245,16 +259,20 @@ public sealed class NativeMainWindow : Window
         brandRow.Children.Add(brandText);
         grid.Children.Add(brandRow);
 
+        // The main navigation: the city and Settings. A conversation is not a menu entry; it opens
+        // from the city, and Home leads back to the city while keeping it open.
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        _backButton.Content = "←  Back to city";
-        _backButton.Style = NativeTheme.Style("OutlineButton");
-        _backButton.Margin = new Thickness(0, 0, 10, 0);
-        _backButton.Click += (_, _) => BackToCity();
-        actions.Children.Add(_backButton);
-        _configureButton.Content = "Configure AI";
-        _configureButton.Style = NativeTheme.Style("OutlineButton");
-        _configureButton.Click += (_, _) => Configure();
-        actions.Children.Add(_configureButton);
+        _homeNav.Content = "🏙  Home";
+        _homeNav.Style = NativeTheme.Style("OutlineButton");
+        _homeNav.Margin = new Thickness(0, 0, 10, 0);
+        _homeNav.Click += (_, _) => BackToCity();
+        AutomationProperties.SetName(_homeNav, "Home");
+        actions.Children.Add(_homeNav);
+        _settingsNav.Content = "⚙  Settings";
+        _settingsNav.Style = NativeTheme.Style("OutlineButton");
+        _settingsNav.Click += (_, _) => Navigate("settings");
+        AutomationProperties.SetName(_settingsNav, "Settings");
+        actions.Children.Add(_settingsNav);
         Grid.SetColumn(actions, 2);
         grid.Children.Add(actions);
         header.Child = grid;
@@ -303,7 +321,7 @@ public sealed class NativeMainWindow : Window
         var left = new StackPanel { Margin = new Thickness(0, 0, 14, 0) };
         left.Children.Add(BuildLucyCard());
         left.Children.Add(BuildMissionCard());
-        left.Children.Add(BuildChoices());
+        left.Children.Add(BuildPracticeSummary());
         _startButton.Content = "Start conversation";
         _startButton.Style = NativeTheme.Style("PrimaryButton");
         _startButton.Margin = new Thickness(0, 2, 0, 4);
@@ -383,31 +401,25 @@ public sealed class NativeMainWindow : Window
         return new Border { Style = NativeTheme.Style("Card"), Margin = new Thickness(0, 0, 0, 14), Child = stack };
     }
 
-    /// <summary>
-    /// Level and feedback language pickers for the left column. Default WPF look,
-    /// recoloured and padded to sit on the same cards as everything else.
-    /// </summary>
-    private StackPanel BuildChoices()
+    /// <summary>The practice settings in one line, with the way to change them; the pickers live in Settings.</summary>
+    private FrameworkElement BuildPracticeSummary()
     {
-        var panel = new StackPanel();
-        foreach (var (label, box, items, selected) in new (string, ComboBox, string[], int)[]
-        {
-            ("LEVEL", _level, new[] { "A1", "A2" }, 1),
-            ("FEEDBACK", _language, new[] { "en", "kk", "ru" }, 0)
-        })
-        {
-            panel.Children.Add(new TextBlock { Text = label, Style = NativeTheme.Style("Label"), Margin = new Thickness(2, 0, 0, 5) });
-            box.Items.Clear();
-            foreach (string item in items) box.Items.Add(item);
-            box.SelectedIndex = selected;
-            box.MinWidth = 200;
-            box.Padding = new Thickness(10, 7, 10, 7);
-            box.FontSize = 13;
-            box.Margin = new Thickness(0, 0, 0, 12);
-            panel.Children.Add(box);
-        }
-        return panel;
+        _practiceSummary.FontSize = 12.5;
+        _practiceSummary.Foreground = NativeTheme.Brush("Muted");
+        _practiceSummary.TextWrapping = TextWrapping.Wrap;
+        _practiceSummary.VerticalAlignment = VerticalAlignment.Center;
+        var change = new Button { Content = "Change in Settings", Style = NativeTheme.Style("LinkButton"), VerticalAlignment = VerticalAlignment.Center };
+        change.Click += (_, _) => Navigate("settings");
+        var row = new DockPanel { Margin = new Thickness(2, 0, 0, 12) };
+        DockPanel.SetDock(change, Dock.Right);
+        row.Children.Add(change);
+        row.Children.Add(_practiceSummary);
+        UpdatePracticeSummary();
+        return row;
     }
+
+    private void UpdatePracticeSummary() =>
+        _practiceSummary.Text = $"Level {_prefs.Level} · feedback in {LanguageNames[_prefs.FeedbackLanguage]}";
 
     /// <summary>Shown until AI is configured: the web's onboarding card with its teal spine.</summary>
     private void BuildOnboarding()
@@ -415,9 +427,9 @@ public sealed class NativeMainWindow : Window
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock { Text = "ALL 8 PLACES ARE OPEN", Style = NativeTheme.Style("Label"), FontSize = 10.5 });
         stack.Children.Add(new TextBlock { Text = "Your city is ready. Connect your AI.", FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = NativeTheme.Brush("Ink"), Margin = new Thickness(0, 3, 0, 4) });
-        stack.Children.Add(new TextBlock { Text = "1. Open Configure AI. 2. Save your provider settings in Windows. 3. Choose any of the eight places and start talking.", Style = NativeTheme.Style("Body"), Foreground = NativeTheme.Brush("Muted") });
-        var configure = new Button { Content = "Configure AI", Style = NativeTheme.Style("PrimaryButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(16, 8, 16, 8) };
-        configure.Click += (_, _) => Configure();
+        stack.Children.Add(new TextBlock { Text = "1. Open Settings → AI configuration. 2. Test and save your provider settings. 3. Choose any of the eight places and start talking.", Style = NativeTheme.Style("Body"), Foreground = NativeTheme.Brush("Muted") });
+        var configure = new Button { Content = "Open AI configuration", Style = NativeTheme.Style("PrimaryButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(16, 8, 16, 8) };
+        configure.Click += (_, _) => Navigate("settings/ai");
         stack.Children.Add(configure);
         _onboarding.Background = NativeTheme.Brush("White");
         _onboarding.BorderBrush = NativeTheme.Brush("Teal");
@@ -841,27 +853,21 @@ public sealed class NativeMainWindow : Window
         }
     }
 
-    private void ShowView(bool practice)
-    {
-        _inPractice = practice;
-        _homeView.Visibility = practice ? Visibility.Collapsed : Visibility.Visible;
-        _practiceView.Visibility = practice ? Visibility.Visible : Visibility.Collapsed;
-        _backButton.Visibility = practice ? Visibility.Visible : Visibility.Collapsed;
-        UpdateButtons();
-    }
-
     /// <summary>Back to the map. An unfinished conversation stays open and can be resumed.</summary>
     private void BackToCity()
     {
-        if (_recorder.IsRecording)
-        {
-            if (_recorder.Stop(out string? path, out _) && path is not null)
-                try { File.Delete(path); } catch (IOException) { }
-            SetMicState(recording: false);
-        }
-        ShowView(practice: false);
+        Navigate("home");
         if (!string.IsNullOrEmpty(_sessionId) && _selected?.Id == _scenarioId)
             SetStatus("Your conversation is still open. Press Resume conversation to continue it.");
+    }
+
+    /// <summary>A recording in progress is dropped when the learner leaves the conversation screen.</summary>
+    private void DropRecording()
+    {
+        if (!_recorder.IsRecording) return;
+        if (_recorder.Stop(out string? path, out _) && path is not null)
+            try { File.Delete(path); } catch (IOException) { }
+        SetMicState(recording: false);
     }
 
     private void UpdateOnboarding() =>
@@ -985,17 +991,18 @@ public sealed class NativeMainWindow : Window
     private void StopVoice()
     {
         _speechGeneration++;
+        _voiceOut.Reset();
         _player.Stop();
         _playing?.TrySetResult(false);
     }
 
     /// <summary>
-    /// Plays a line through the bundled Kokoro voice, sentence by sentence: the next
-    /// sentence is synthesised while the current one plays, so Lucy starts talking
-    /// after one sentence's synthesis instead of the whole reply's. A newer line
-    /// supersedes this one between sentences. Worker requests are never cancelled:
-    /// cancelling one restarts the speech process and reloads both models.
-    /// Typing must still work whatever happens here.
+    /// Plays a line through the bundled Kokoro voice. Sentences are synthesised one after another as
+    /// fast as the worker allows, independent of playback, and written to one continuous output, so
+    /// Lucy starts after the first sentence and the only silence between sentences is
+    /// <see cref="SentencePause"/> (plus any time the next sentence is genuinely not ready yet).
+    /// A newer line supersedes this one. Worker requests are never cancelled: cancelling one
+    /// restarts the speech process and reloads both models. Typing must still work whatever happens.
     /// </summary>
     private async Task SpeakAsync(string? text)
     {
@@ -1006,12 +1013,15 @@ public sealed class NativeMainWindow : Window
         var chunks = SpeechChunks.Split(text);
         if (chunks.Count == 0) return;
         var started = Stopwatch.StartNew();
+        var ready = chunks.Select(_ => new TaskCompletionSource<(byte[]? Audio, string Failure)>(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        _ = SynthesizeLineAsync(chunks, ready, generation);
+        var readyAt = new List<long>();
+        var silentWaits = new List<long>();
         try
         {
-            var next = SynthesizeAsync(chunks[0]);
             for (int index = 0; index < chunks.Count; index++)
             {
-                var (audio, failure) = await next;
+                var (audio, failure) = await ready[index].Task;
                 if (generation != _speechGeneration || _closing) return;
                 if (audio is null)
                 {
@@ -1020,10 +1030,15 @@ public sealed class NativeMainWindow : Window
                     Notify("Lucy's voice could not play: " + failure + " Typing still works.");
                     return;
                 }
-                if (index + 1 < chunks.Count) next = SynthesizeAsync(chunks[index + 1]);
+                readyAt.Add(started.ElapsedMilliseconds);
                 if (index == 0) _firstVoiceDelay = started.Elapsed;
-                if (!await PlayAsync(audio, generation)) return;
+                long? waited = await VoiceSentenceAsync(audio, index, generation);
+                if (waited is null) return;
+                if (index > 0) silentWaits.Add(waited.Value);
             }
+            await WhenVoiceDoneAsync(generation);
+            // Numbers only: the trace never holds conversation text.
+            AppStartup.Note("voice", "line", $"{chunks.Count} sentences; ready at {string.Join('/', readyAt)} ms; output already silent {string.Join('/', silentWaits)} ms");
         }
         catch (Exception)
         {
@@ -1032,11 +1047,75 @@ public sealed class NativeMainWindow : Window
         }
     }
 
-    /// <summary>Returns the WAV or the router's reason; never throws, so a superseded request is harmless.</summary>
-    private async Task<(byte[]? Audio, string Failure)> SynthesizeAsync(string sentence)
+    /// <summary>Requests each sentence as soon as the previous one is synthesised; stops when the line is superseded.</summary>
+    private async Task SynthesizeLineAsync(IReadOnlyList<string> chunks, TaskCompletionSource<(byte[]? Audio, string Failure)>[] ready, int generation)
+    {
+        for (int index = 0; index < chunks.Count; index++)
+        {
+            if (generation != _speechGeneration || _closing)
+            {
+                for (int rest = index; rest < chunks.Count; rest++) ready[rest].TrySetResult((null, "Superseded."));
+                return;
+            }
+            var result = await SynthesizeAsync(chunks[index]);
+            ready[index].TrySetResult(result);
+            if (result.Audio is null)
+            {
+                for (int rest = index + 1; rest < chunks.Count; rest++) ready[rest].TrySetResult((null, result.Failure));
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Queues one sentence on the continuous output, preceded by the sentence pause minus however long
+    /// the output has already been silent. Returns that silent time in ms, or null when the line stopped.
+    /// </summary>
+    private async Task<long?> VoiceSentenceAsync(byte[] wav, int index, int generation)
+    {
+        if (!WavAudio.TryRead(wav, out var format, out var pcm))
+            return await PlayAsync(wav, generation) ? 0 : null;
+        if (!_voiceStreamUnavailable && !_voiceOut.Open(format))
+        {
+            // No waveOut device: fall back to one media file per sentence.
+            _voiceStreamUnavailable = true;
+            AppStartup.Note("voice", "stream-unavailable", "media-player fallback");
+        }
+        if (_voiceStreamUnavailable)
+            return await PlayAsync(wav, generation) ? 0 : null;
+        var (silence, start, alreadySilent) = SentencePacing.Next(_voiceClock.Elapsed, _voiceEnd, index == 0, SentencePause);
+        if (silence > TimeSpan.Zero) _voiceOut.Write(format.Silence(silence));
+        _voiceOut.Write(pcm);
+        _voiceEnd = start + format.Duration(pcm.Length);
+        _voicedSentences++;
+        return (long)alreadySilent.TotalMilliseconds;
+    }
+
+    /// <summary>Waits until the output has played the line, bounded by the audio's own length.</summary>
+    private async Task WhenVoiceDoneAsync(int generation)
+    {
+        TimeSpan limit = _voiceEnd + TimeSpan.FromSeconds(2);
+        while (!_voiceStreamUnavailable && generation == _speechGeneration && !_closing && _voiceClock.Elapsed < limit && _voiceOut.Playing)
+            await Task.Delay(40);
+    }
+
+    /// <summary>
+    /// Returns the WAV or the router's reason; never throws, so a superseded request is harmless.
+    /// A sentence already being synthesised (a replay pressed mid-line) shares that request.
+    /// </summary>
+    private Task<(byte[]? Audio, string Failure)> SynthesizeAsync(string sentence)
     {
         _synthesisStarts.Add(DateTime.UtcNow);
-        if (_voiceCache.TryGetValue(sentence, out var cached)) return (cached, "");
+        if (_voiceCache.TryGetValue(sentence, out var cached)) return Task.FromResult<(byte[]? Audio, string Failure)>((cached, ""));
+        if (_synthesising.TryGetValue(sentence, out var running)) return running;
+        var task = RequestSpeechAsync(sentence);
+        _synthesising[sentence] = task;
+        _ = task.ContinueWith(_ => _synthesising.Remove(sentence), TaskScheduler.FromCurrentSynchronizationContext());
+        return task;
+    }
+
+    private async Task<(byte[]? Audio, string Failure)> RequestSpeechAsync(string sentence)
+    {
         try
         {
             var body = new JsonObject { ["text"] = sentence, ["voice"] = "american", ["speed"] = 0.95 };
@@ -1056,12 +1135,6 @@ public sealed class NativeMainWindow : Window
     /// <summary>Plays one WAV; false when it was superseded, failed, or the window is closing.</summary>
     private async Task<bool> PlayAsync(byte[] audio, int generation)
     {
-        if (_playOverride is not null)
-        {
-            _voicedSentences++;
-            bool heard = await _playOverride(audio);
-            return heard && generation == _speechGeneration && !_closing;
-        }
         string path = Path.Combine(Path.GetTempPath(), $"speakcity-tts-{Guid.NewGuid():N}.wav");
         await File.WriteAllBytesAsync(path, audio);
         if (generation != _speechGeneration || _closing)
@@ -1130,7 +1203,7 @@ public sealed class NativeMainWindow : Window
                 if (IsIdle)
                     SetStatus(ApiConfigStore.IsConfigured(_config)
                         ? "Voice ready. Choose a place on the map and press Start conversation."
-                        : "Voice ready, but AI is not configured. Press Configure AI, test the connection, save, then Start.");
+                        : "Voice ready, but AI is not configured. Open Settings → AI configuration, test the connection and save.");
             }
             else
             {
@@ -1217,7 +1290,7 @@ public sealed class NativeMainWindow : Window
                 StartWarmupAsync();
                 SetStatus(ApiConfigStore.IsConfigured(_config)
                     ? "Voice engine starting… Choose a place on the map and press Start conversation."
-                    : "Voice engine starting… Press Configure AI, test the connection, save, then press Start conversation.");
+                    : "Voice engine starting… Open Settings → AI configuration, test the connection and save.");
             }
         }
         catch (Exception)
@@ -1248,7 +1321,6 @@ public sealed class NativeMainWindow : Window
         _input.IsEnabled = !_busy && hasSession;
         _micButton.IsEnabled = !_busy && hasSession;
         _replayButton.IsEnabled = !_busy && _lastLucyLine is not null;
-        _configureButton.IsEnabled = !_busy;
     }
 
     private Task<bool> ConfigureTaskAsync()
@@ -1257,17 +1329,8 @@ public sealed class NativeMainWindow : Window
         return Task.FromResult(ApiConfigStore.IsConfigured(_config));
     }
 
-    private void Configure()
-    {
-        var dialog = new ApiSettingsWindow(_config) { Owner = this };
-        dialog.ShowDialog();
-        if (dialog.Saved) _config = ApiConfigStore.Load();
-        Notify(ApiConfigStore.IsConfigured(_config)
-            ? "AI settings saved. Choose a place and press Start conversation."
-            : "AI is not configured yet. Open Configure AI again.");
-        UpdateOnboarding();
-        UpdateButtons();
-    }
+    /// <summary>The router's /api/configure opens the same page the Settings screen does.</summary>
+    private void Configure() => Navigate("settings/ai");
 
     private async Task<AppResponse?> CallAsync(string method, string path, JsonObject? body = null)
     {
@@ -1299,14 +1362,14 @@ public sealed class NativeMainWindow : Window
         var place = _selected;
         if (!string.IsNullOrEmpty(_sessionId) && place.Id == _scenarioId)
         {
-            ShowView(practice: true);
+            Navigate("practice");
             FocusInput();
             return;
         }
         _busy = true; UpdateButtons();
         try
         {
-            string level = _level.SelectedItem as string ?? "A2";
+            string level = _prefs.Level;
             var body = new JsonObject { ["scenario"] = place.Id, ["level"] = level, ["language"] = "en" };
             var response = await CallAsync("POST", "/api/sessions", body);
             var payload = ReadJson(response);
@@ -1326,7 +1389,7 @@ public sealed class NativeMainWindow : Window
             UpdateChatHint();
             ShowPlace(place);
             UpdateTurnChip();
-            ShowView(practice: true);
+            Navigate("practice");
             _lastLucyLine = Text(payload["reply"]) ?? "";
             AddMessage("Lucy", _lastLucyLine);
             if (_speakReplies.IsChecked == true) Speak(_lastLucyLine);
@@ -1394,9 +1457,9 @@ public sealed class NativeMainWindow : Window
         _busy = true; UpdateButtons();
         try
         {
-            string language = _language.SelectedItem as string ?? "en";
+            string language = _prefs.FeedbackLanguage;
             ShowThinking();
-            var body = new JsonObject { ["language"] = language };
+            var body = new JsonObject { ["language"] = language, ["depth"] = _prefs.FeedbackDepth };
             var response = await CallAsync("POST", $"/api/sessions/{_sessionId}/finish", body);
             var payload = ReadJson(response);
             HideThinking();
@@ -1437,6 +1500,15 @@ public sealed class NativeMainWindow : Window
                     bool encountered = entry["encountered"] is JsonValue used && used.TryGetValue(out bool seen) && seen;
                     AddNote($"• {label} — {meaning}{(encountered ? "  (used)" : "")}");
                 }
+            }
+            try
+            {
+                _history.Add(payload, _selected?.Title ?? _scenarioId ?? "", _prefs.Level, DateTime.UtcNow);
+                AddNoteLink("Saved on your Feedback page.", "Open Feedback", () => Navigate("settings/feedback"));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                AddNote("This review could not be saved on the Feedback page (its folder is not writable).");
             }
             ScrollChatToEnd();
             // The review is on screen; free the finished conversation in the router.
@@ -1585,6 +1657,19 @@ public sealed class NativeMainWindow : Window
         ScrollChatToEnd();
     }
 
+    /// <summary>A review note with one link-style action, such as opening the Feedback page.</summary>
+    private void AddNoteLink(string text, string action, Action onClick)
+    {
+        var link = new Button { Content = action + "  →", Style = NativeTheme.Style("LinkButton"), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        link.Click += (_, _) => onClick();
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new TextBlock { Text = text, FontSize = 13, Foreground = NativeTheme.Brush("Muted"), VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(link);
+        _chat.Children.Add(new Border { Child = row, Margin = new Thickness(2, 0, 60, 12) });
+        UpdateChatHint();
+        ScrollChatToEnd();
+    }
+
     // ---- Status and toast -----------------------------------------------------
 
     private void SetStatus(string text)
@@ -1622,6 +1707,21 @@ public sealed class NativeMainWindow : Window
     internal Task? CurrentSpeech => _currentSpeech;
     internal int VoicedSentences => _voicedSentences;
     internal int PlaybackFailures => _playbackFailures;
+    internal AppPreferences Preferences => _prefs;
+    internal FeedbackHistory History => _history;
+    internal string CurrentView => _view;
+    internal bool HomeHasPickers => Descendants(_homeView).OfType<System.Windows.Controls.Primitives.Selector>().Any();
+    internal IReadOnlyList<string> SettingsSectionIds => Sections.Select(section => section.Id).ToList();
+    internal IEnumerable<string> PageLines => _pageHost.Child is null ? [] : Descendants(_pageHost.Child).OfType<TextBlock>().Select(block => block.Text);
+    internal bool PageHas<T>() where T : DependencyObject => _pageHost.Child is not null && Descendants(_pageHost.Child).OfType<T>().Any();
+    internal void NavigateForTest(string view) => Navigate(view);
+    /// <summary>Raises Click on the page's button with this Tag, as Enter, Space or a mouse click would.</summary>
+    internal bool ClickInPageForTest(string tag)
+    {
+        var button = _pageHost.Child is null ? null : Descendants(_pageHost.Child).OfType<Button>().FirstOrDefault(item => Equals(item.Tag, tag));
+        button?.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        return button is not null;
+    }
     internal TimeSpan? FirstVoiceDelay => _firstVoiceDelay;
     internal IReadOnlyList<Button> Pins => _pins;
     internal string? SelectedPlaceId => _selected?.Id;

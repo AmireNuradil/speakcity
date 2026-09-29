@@ -8,8 +8,12 @@ using System.Windows.Media;
 
 namespace SpeakCity;
 
-/// <summary>A native, owner-supplied API configuration dialog; no browser or JavaScript is used.</summary>
-public sealed class ApiSettingsWindow : Window
+/// <summary>
+/// The owner-supplied API configuration form; no browser or JavaScript is used. It is a page in
+/// the native window (Settings → AI configuration) and the body of <see cref="ApiSettingsWindow"/>
+/// for the WebView interface.
+/// </summary>
+public sealed class ApiSettingsPanel : UserControl
 {
     private readonly TextBox _baseUrl;
     private readonly TextBox _model;
@@ -27,8 +31,12 @@ public sealed class ApiSettingsWindow : Window
 
     public bool Saved { get; private set; }
     public ApiConfig Configuration { get; private set; }
+    /// <summary>Raised after the settings were stored.</summary>
+    public event EventHandler? SavedSettings;
+    /// <summary>Raised when Cancel is pressed; only shown where the host has somewhere to go back to.</summary>
+    public event EventHandler? CancelRequested;
 
-    public ApiSettingsWindow(ApiConfig current)
+    public ApiSettingsPanel(ApiConfig current, bool showCancel = true)
     {
         ArgumentNullException.ThrowIfNull(current);
         // Work on a copy. Cancel must not mutate the caller's live configuration.
@@ -38,20 +46,6 @@ public sealed class ApiSettingsWindow : Window
             Model = current.Model ?? "",
             ApiKey = current.ApiKey ?? ""
         };
-
-        Title = "SpeakCity — API settings";
-        Width = 620;
-        Height = 700;
-        MinWidth = 440;
-        MinHeight = 520;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        ResizeMode = ResizeMode.CanResize;
-        ShowInTaskbar = false;
-        UseLayoutRounding = true;
-        Background = SystemColors.WindowBrush;
-        Foreground = SystemColors.WindowTextBrush;
-        FontFamily = new FontFamily("Segoe UI");
-        FontSize = 14;
 
         var root = new Grid { Margin = new Thickness(24) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -164,7 +158,8 @@ public sealed class ApiSettingsWindow : Window
         var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         _testButton = new Button { Content = "Test _connection", Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 8, 6) };
         _saveButton = new Button { Content = "_Save", IsDefault = true, MinWidth = 86, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 8, 6) };
-        var cancel = new Button { Content = "_Cancel", IsCancel = true, MinWidth = 86, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 0, 6) };
+        var cancel = new Button { Content = "_Cancel", IsCancel = showCancel, MinWidth = 86, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 0, 6),
+            Visibility = showCancel ? Visibility.Visible : Visibility.Collapsed };
         buttons.Children.Add(_testButton);
         buttons.Children.Add(_saveButton);
         buttons.Children.Add(cancel);
@@ -176,8 +171,9 @@ public sealed class ApiSettingsWindow : Window
         _apiKey.PasswordChanged += (_, _) => OnSettingsEdited();
         _testButton.Click += TestConnectionClicked;
         _saveButton.Click += SaveClicked;
-        cancel.Click += (_, _) => Close();
-        Closed += (_, _) =>
+        cancel.Click += (_, _) => CancelRequested?.Invoke(this, EventArgs.Empty);
+        // Leaving the page or closing the dialog stops a running test and wipes the typed key.
+        Unloaded += (_, _) =>
         {
             _isClosed = true;
             _testCancellation?.Cancel();
@@ -265,7 +261,7 @@ public sealed class ApiSettingsWindow : Window
         _testCancellation = cancellation;
         _hasSuccessfulTest = false;
         SetBusy(true);
-        SetStatus("Testing the displayed provider with synthetic data only. No settings have been saved. Cancel closes this dialog and stops the test.");
+        SetStatus("Testing the displayed provider with synthetic data only. No settings have been saved. Cancel, or leaving this page, stops the test.");
         try
         {
             // Keep all network work and JSON parsing off the WPF UI thread.
@@ -320,10 +316,9 @@ public sealed class ApiSettingsWindow : Window
 
         try
         {
-            if (!_hasSuccessfulTest && MessageBox.Show(this,
+            if (!_hasSuccessfulTest && Confirm(
                     "These settings have not passed a connection test. Save them anyway? The app will send transcript text to the displayed provider when API features are used.",
-                    "Save without a successful test?", MessageBoxButton.YesNo, MessageBoxImage.Question,
-                    MessageBoxResult.No) != MessageBoxResult.Yes)
+                    "Save without a successful test?") != MessageBoxResult.Yes)
             {
                 snapshot.ApiKey = "";
                 return;
@@ -345,8 +340,16 @@ public sealed class ApiSettingsWindow : Window
 
         Configuration = snapshot;
         Saved = true;
-        // This is a modal settings dialog. The caller should use ShowDialog(), then reload the store.
-        DialogResult = true;
+        // The host reloads the store; a dialog closes, the native window returns to Settings.
+        SavedSettings?.Invoke(this, EventArgs.Empty);
+    }
+
+    private MessageBoxResult Confirm(string text, string caption)
+    {
+        var owner = Window.GetWindow(this);
+        return owner is null
+            ? MessageBox.Show(text, caption, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No)
+            : MessageBox.Show(owner, text, caption, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
     }
 
     private void SetBusy(bool busy)
@@ -364,5 +367,35 @@ public sealed class ApiSettingsWindow : Window
     private void SetStatus(string message)
     {
         _status.Text = message;
+    }
+}
+
+/// <summary>The same form as a modal dialog, for the WebView interface's /api/configure.</summary>
+public sealed class ApiSettingsWindow : Window
+{
+    private readonly ApiSettingsPanel _panel;
+
+    public bool Saved => _panel.Saved;
+    public ApiConfig Configuration => _panel.Configuration;
+
+    public ApiSettingsWindow(ApiConfig current)
+    {
+        Title = "SpeakCity — API settings";
+        Width = 620;
+        Height = 700;
+        MinWidth = 440;
+        MinHeight = 520;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ResizeMode = ResizeMode.CanResize;
+        ShowInTaskbar = false;
+        UseLayoutRounding = true;
+        Background = SystemColors.WindowBrush;
+        Foreground = SystemColors.WindowTextBrush;
+        FontFamily = new FontFamily("Segoe UI");
+        FontSize = 14;
+        _panel = new ApiSettingsPanel(current);
+        _panel.SavedSettings += (_, _) => DialogResult = true;
+        _panel.CancelRequested += (_, _) => Close();
+        Content = _panel;
     }
 }
