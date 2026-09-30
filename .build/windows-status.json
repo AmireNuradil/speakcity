@@ -1,9 +1,9 @@
 {
-  "note": "Windows build evidence, not a physical Windows 11 microphone test.",
-  "architecture": "AMD64",
-  "run_id": "36436675589",
+  "commit": "ea37f5f60c900dd717997732c05a834d76bd761f",
   "os": "Microsoft Windows Server 2025 Datacenter",
-  "commit": "d7bf6b11f22b86e7812b2416431b9addda6c0760",
+  "result": "success",
   "phase": "desktop-build",
-  "result": "success"
+  "run_id": "36733410665",
+  "note": "Windows build evidence, not a physical Windows 11 microphone test.",
+  "architecture": "AMD64"
 }
