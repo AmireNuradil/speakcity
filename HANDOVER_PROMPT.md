@@ -10,6 +10,15 @@ You are taking over **SPEAKCITY AI**, a Windows 11 desktop app that practices *s
 learners whose English is weak (Kazakh/Russian native speakers). Work autonomously: measure before
 you decide, do not ask which option you would prefer, and leave a written trail of what you proved.
 
+## Latest state (2026-09-29): read `AGENT_STATE.md` sections 0a and 0 first
+
+- PR #3 (stacked on #2) adds the Settings page: English level A1–C2, Feedback (history,
+  words, explanation language, review type) and AI configuration as a page.
+- Home now only starts practice.
+- Lucy's voice goes through one waveOut stream with a 220 ms pause between sentences.
+- Learner preferences live in `%LOCALAPPDATA%\SpeakCity\preferences.json` and reviews in
+  `feedback-history.json`. The smoke and self-tests use scratch folders and never these files.
+
 ## Latest state (2026-09-27): read `AGENT_STATE.md` section 0 first
 
 PR #1 gives the native window the web version's look: a city map with 8 pins, Lucy portraits,
@@ -63,8 +72,8 @@ python -B tests/speech_worker_test.py                       # Ran 35, OK
 python -B tests/notice_collection_test.py                   # Ran 8, OK
 node --test ui/tests/ui.test.cjs ui/tests/recorder.test.cjs # 39 pass, 0 fail
 & 'C:\Users\Acer\dotnet10\dotnet.exe' build src\SpeakCity\SpeakCity.csproj -c Release   # 0 err, 0 warn
-& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --self-test "$env:TEMP\st.json"  # 149 checks after PR #1 (134 before)
-& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 23 checks after PR #1 (11 before); also writes native-ui-*.png beside the report
+& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --self-test "$env:TEMP\st.json"  # 164 checks after PR #3 (149 after PR #1, 134 before)
+& ".\src\SpeakCity\bin\Release\net10.0-windows\win-x64\SpeakCity.exe" --ui-smoke "$env:TEMP\smoke.json" # 37 checks after PR #3 (23 after PR #1, 11 before); also writes native-ui-*.png beside the report
 ```
 
 As of 2026-09-26 all of the above are green, and `out\release\SPEAKCITY-AI-Setup-x64.exe`

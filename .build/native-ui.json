@@ -1,9 +1,9 @@
 {
-  "scope": "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider and speakers are test doubles (a build agent has no audio output); no live API credentials used.",
+  "scope": "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider and speakers are test doubles (a build agent has no audio output); preferences and reviews go to a scratch folder; no live API credentials used.",
   "catalog_present": true,
   "startup_trace": [
     "app_version=0.2.0.0",
-    "created_utc=2026-09-28T14:38:01.7079113Z",
+    "created_utc=2026-09-30T14:59:38.0931741Z",
     "desktop_session=true",
     "automated_session=true",
     "webview2_runtime_version=153.0.4234.48",
@@ -30,25 +30,48 @@
     "City map picture is drawn",
     "Lucy's portrait is drawn on the city screen",
     "Every map pin is a named, focusable button",
+    "Home keeps only the practice: no level or feedback pickers",
     "Choosing a pin selects that place",
     "Voice warm-up loads Kokoro and Whisper before the first turn",
     "Start opens the practice screen with the scene portrait",
     "Lucy's greeting is voiced sentence by sentence",
+    "Sentences follow each other after a short pause, and nothing adds to a wait",
     "The next sentence is synthesised while the previous one plays",
     "Lucy's replies carry her avatar",
+    "Lucy speaks at the level chosen in Settings",
     "Finish shows the correction in the window",
-    "An empty review is reported honestly, not as perfect English"
+    "The review is kept for the Feedback page",
+    "A word from the review can be saved to My vocabulary",
+    "Settings lists English level, Feedback and AI configuration",
+    "A Settings section opens as its own page",
+    "All six CEFR levels can be chosen",
+    "The chosen level is saved for next time",
+    "Feedback is its own page next to Home and Settings, with past corrections and the place's words",
+    "The word saved in the review is in My vocabulary",
+    "A saved word can be heard in Lucy's voice",
+    "Words are saved and removed on the Feedback page and kept for next time",
+    "Explanation language and review type are chosen in Settings",
+    "AI configuration is a page with the connection form",
+    "A new conversation uses the level chosen in Settings",
+    "The review type chosen in Settings reaches the review",
+    "An empty review is reported honestly, not as perfect English",
+    "Saved reviews survive a restart"
   ],
   "timings_ms": {
-    "window_open_to_voice_warm_ms": 4618,
-    "greeting_first_voice_ms": 1109,
-    "gap_between_greeting_sentences_ms": 1,
-    "reply_first_voice_ms": 1374
+    "window_open_to_voice_warm_ms": 4642,
+    "greeting_first_voice_ms": 1114,
+    "gap_between_greeting_sentences_ms": 220,
+    "greeting_next_sentence_ready_in_time": true,
+    "reply_first_voice_ms": 1436
   },
   "screenshots": [
     "native-ui-city.png",
     "native-ui-practice.png",
-    "native-ui-feedback.png"
+    "native-ui-feedback.png",
+    "native-ui-settings.png",
+    "native-ui-settings-level.png",
+    "native-ui-feedback-page.png",
+    "native-ui-settings-ai.png"
   ],
   "passed": true,
   "status": "passed"

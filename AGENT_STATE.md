@@ -1,12 +1,74 @@
 # AGENT_STATE.md — SPEAKCITY AI takeover checkpoint
 
+## 0b. 2026-09-30: aligned with the project paper (PR #3)
+
+The owner asked for the app to match the research paper (the .docx in the thread):
+- Header navigation is **Home · Feedback · Settings**. The Feedback page holds the corrections,
+  the words of practised places with Listen/Save, and **My vocabulary** (the paper's personal
+  word list), stored in `vocabulary.json` (max 500).
+- Every word in the after-conversation review has Listen and **+ Save**.
+- Settings keeps the English level, the Feedback section (explanation language and review type
+  only) and the AI configuration.
+- Places follow the paper's table:
+  - "Directions" is shown as **City Map**; its id stays `directions`.
+  - Airport: ticket, pretend passport and luggage.
+  - Hotel: asking about and booking a room, prices in US dollars.
+  - Shop: choosing an item and asking its price, in US dollars.
+  - Hospital: Lucy is a nurse, symptoms are pretend, and she gives no diagnosis or medicine.
+- Each place has 6 new words, all different. Scenario contexts no longer say "A1-A2"; the level
+  comes from Settings.
+- `ui/scenario-catalog.js` is regenerated from `content/scenarios.json` in the web's order.
+
+## 0a. Checkpoint 2026-09-29: PR #3 (Settings pages, gapless voice), stacked on PR #2
+
+The owner confirmed that the installed build works, microphone included, and asked for:
+- a simpler Home;
+- a separate Settings page with English level, Feedback and AI configuration;
+- a fix for the long silences between Lucy's sentences.
+
+**Structure**
+- Header navigation is now **Home** and **Settings**. The conversation screen is unchanged and
+  opens from Start conversation.
+- Home lost its level and feedback pickers. One line shows the current level and feedback
+  language, with a link to Settings.
+- Settings sections are registry entries in `NativeMainWindow.Pages.cs`:
+  - **English level:** A1–C2, stored in `%LOCALAPPDATA%\SpeakCity\preferences.json`. The router
+    gives Lucy guidance per level; the A1 and A2 text is unchanged.
+  - **Feedback:** past corrections, the words split into "to try" and "you used"
+    (`used_by_learner` counts only the learner's own answers), the explanation language, and the
+    review type (focused: 3 corrections; thorough: 5, including word choice).
+  - **AI configuration:** `ApiSettingsPanel`, the same form and DPAPI storage as before, shown as
+    a page. `ApiSettingsWindow` wraps it for the WebView interface.
+- Reviews are kept in `feedback-history.json`: corrections and words only, never the
+  conversation, at most 50.
+
+**Voice gap: the cause found in the code**
+- Each sentence was its own temp WAV played by `MediaPlayer`: a fresh `Open()` for every
+  sentence, then a wait for `MediaEnded`, or length + 3 s if that event never came.
+- Synthesis of sentence n+2 waited until sentence n had finished playing.
+
+Now all sentences are synthesised back to back and written to one waveOut stream
+(`VoiceOutput.cs`) with a 220 ms pause between them (`SentencePacing`: a wait counts towards the
+pause). `MediaPlayer` is only the fallback when no waveOut device exists. Every line writes
+numbers-only timings to `startup.json`.
+
+**Proof**
+- Windows run 36588308038: self-test **164/164**, both packaged and installed. UI smoke **37/37**:
+  it walks Settings, Level (B1 saved), the Feedback page and the AI page, and checks that the
+  level and review type reach the router.
+- Greeting gap on stand-in speakers: 220 ms, next sentence ready in time.
+- The runner has no audio device (`voice_output_device: false`), so the waveOut path itself
+  plays only on a real PC. **Listen once on the laptop.** If a gap still sounds long, read the
+  `voice line` entries in `startup.json`.
+- Linux stand built from the real router, preferences, history and voice sources: 35/35.
+
 ## 0. Checkpoint 2026-09-27 — PR #1 (branch `hoplite/megale-polis-dbc1a735`)
 
 Done from a Linux sandbox. Here WPF compiles (`-p:EnableWindowsTargeting=true`) but cannot run.
 Windows proof therefore comes only from the PR's CI run. **That run needs the owner to press
 "Approve and run workflows" on the PR**, because GitHub holds workflows opened by the bot and
 manual dispatch is refused to the bot token (HTTP 403). Expected counts once it runs:
-self-test **149** (was 134), UI smoke **23** (was 11). Treat them as unproven until the run shows them.
+self-test **149** (was 134), UI smoke **23** (was 11); after PR #3: self-test **164**, UI smoke **37** (both proven on Windows).
 
 **2026-09-28, the owner's own laptop build** (after PR #1 was merged): the installer compiled and the
 installed copy passed the self-test. The UI smoke then failed at "Voice warm-up loads Kokoro and
