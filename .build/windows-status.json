@@ -1,9 +1,9 @@
 {
-  "result": "cancelled",
+  "os": "Microsoft Windows Server 2025 Datacenter",
+  "run_id": "36737193886",
   "phase": "desktop-build",
   "architecture": "AMD64",
-  "run_id": "36736758289",
-  "os": "Microsoft Windows Server 2025 Datacenter",
-  "commit": "da6ac5ab52658d6b66c8cd2dafaea65f04499172",
-  "note": "Windows build evidence, not a physical Windows 11 microphone test."
+  "result": "success",
+  "note": "Windows build evidence, not a physical Windows 11 microphone test.",
+  "commit": "fcfbc7fb7794031798253dec673e4f762954f1f3"
 }
