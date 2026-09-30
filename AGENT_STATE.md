@@ -1,5 +1,24 @@
 # AGENT_STATE.md — SPEAKCITY AI takeover checkpoint
 
+## 0b. 2026-09-30: aligned with the project paper (PR #3)
+
+The owner asked for the app to match the research paper (the .docx in the thread):
+- Header navigation is **Home · Feedback · Settings**. The Feedback page holds the corrections,
+  the words of practised places with Listen/Save, and **My vocabulary** (the paper's personal
+  word list), stored in `vocabulary.json` (max 500).
+- Every word in the after-conversation review has Listen and **+ Save**.
+- Settings keeps the English level, the Feedback section (explanation language and review type
+  only) and the AI configuration.
+- Places follow the paper's table:
+  - "Directions" is shown as **City Map**; its id stays `directions`.
+  - Airport: ticket, pretend passport and luggage.
+  - Hotel: asking about and booking a room, prices in US dollars.
+  - Shop: choosing an item and asking its price, in US dollars.
+  - Hospital: Lucy is a nurse, symptoms are pretend, and she gives no diagnosis or medicine.
+- Each place has 6 new words, all different. Scenario contexts no longer say "A1-A2"; the level
+  comes from Settings.
+- `ui/scenario-catalog.js` is regenerated from `content/scenarios.json` in the web's order.
+
 ## 0a. Checkpoint 2026-09-29: PR #3 (Settings pages, gapless voice), stacked on PR #2
 
 The owner confirmed that the installed build works, microphone included, and asked for:

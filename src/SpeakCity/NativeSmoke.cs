@@ -221,6 +221,7 @@ public static class NativeSmoke
             check("Finish shows the correction in the window",
                 window.FeedbackShown && window.ChatLines.Any(line => line.Contains("I want to book a room.", StringComparison.Ordinal)));
             check("The review is kept for the Feedback page", window.History.Entries.Count == 1);
+            check("A word from the review can be saved to My vocabulary", window.ClickInChatForTest("save:menu") && window.Vocabulary.Contains("menu"));
             screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-feedback.png"));
 
             // Settings: one place for everything, each section its own page.
@@ -235,18 +236,28 @@ public static class NativeSmoke
                 window.Preferences.Level == "B1" && AppPreferences.Load(Path.Combine(storage, "preferences.json")).Level == "B1");
             screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-settings-level.png"));
 
-            window.NavigateForTest("settings/feedback");
+            window.ClickFeedbackNavForTest();
             var feedbackLines = window.PageLines.ToList();
-            check("The Feedback page shows past corrections and the place's words",
-                feedbackLines.Any(text => text.Contains("I want book a room.", StringComparison.Ordinal) && text.Contains("I want to book a room.", StringComparison.Ordinal))
+            check("Feedback is its own page next to Home and Settings, with past corrections and the place's words",
+                window.CurrentView == "feedback"
+                && feedbackLines.Any(text => text.Contains("I want book a room.", StringComparison.Ordinal) && text.Contains("I want to book a room.", StringComparison.Ordinal))
                 && feedbackLines.Any(text => text.StartsWith("WORDS TO TRY NEXT TIME", StringComparison.Ordinal)));
+            check("The word saved in the review is in My vocabulary", feedbackLines.Contains("My vocabulary (1)") && feedbackLines.Contains("menu"));
+            int voiced = window.SynthesisStarts.Count;
+            check("A saved word can be heard in Lucy's voice", window.ClickInPageForTest("listen:menu") && window.SynthesisStarts.Count > voiced);
+            window.ClickInPageForTest("save:order");
+            window.ClickInPageForTest("remove:menu");
+            var kept = new VocabularyStore(Path.Combine(storage, "vocabulary.json"));
+            check("Words are saved and removed on the Feedback page and kept for next time", kept.Contains("order") && !kept.Contains("menu"));
+            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-feedback-page.png"));
+
+            window.NavigateForTest("settings/feedback");
             window.ClickInPageForTest("language:ru");
             bool russian = window.Preferences.FeedbackLanguage == "ru";
             window.ClickInPageForTest("language:en");
             window.ClickInPageForTest("depth:thorough");
-            check("Explanation language and review type are chosen on the Feedback page",
+            check("Explanation language and review type are chosen in Settings",
                 russian && window.Preferences.FeedbackLanguage == "en" && window.Preferences.FeedbackDepth == "thorough");
-            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-feedback-page.png"));
 
             window.NavigateForTest("settings/ai");
             check("AI configuration is a page with the connection form",

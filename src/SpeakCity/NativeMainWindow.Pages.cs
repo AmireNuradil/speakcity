@@ -8,7 +8,7 @@ using System.Windows.Controls;
 namespace SpeakCity;
 
 /// <summary>
-/// The window's screens besides the city and the conversation: Settings and its sections. Every
+/// The window's screens besides the city and the conversation: Feedback, Settings and its sections. Every
 /// section is one entry in <see cref="Sections"/>; the hub, navigation and back links follow from it,
 /// so a new section (voice, conversation, history…) needs only its entry and its page builder.
 /// </summary>
@@ -44,12 +44,12 @@ public sealed partial class NativeMainWindow
     private IReadOnlyList<SettingsSection> Sections => _sections ??=
     [
         new("level", "🎯", "English level", () => $"{_prefs.Level} · {LevelNames[_prefs.Level].Name}. Lucy speaks to match it.", BuildLevelPage),
-        new("feedback", "📝", "Feedback", FeedbackSummary, BuildFeedbackPage),
+        new("feedback", "📝", "Feedback", FeedbackSettingsSummary, BuildFeedbackChoices),
         new("ai", "🤖", "AI configuration", AiSummary, BuildAiPage)
     ];
 
     /// <summary>
-    /// Shows "home", "practice", "settings" or "settings/{section}". Pages are rebuilt on every visit,
+    /// Shows "home", "practice", "feedback", "settings" or "settings/{section}". Pages are rebuilt on every visit,
     /// so they always show current values, and leaving one unloads it (the AI page stops a running test).
     /// </summary>
     private void Navigate(string view)
@@ -62,10 +62,16 @@ public sealed partial class NativeMainWindow
         _inPractice = view == "practice";
         _homeView.Visibility = view == "home" ? Visibility.Visible : Visibility.Collapsed;
         _practiceView.Visibility = _inPractice ? Visibility.Visible : Visibility.Collapsed;
-        _pageHost.Child = view == "settings" ? BuildSettingsHub() : section is null ? null : SectionPage(section);
+        _pageHost.Child = view switch
+        {
+            "settings" => BuildSettingsHub(),
+            "feedback" => Page("Feedback", "Your grammar corrections from finished conversations and your personal vocabulary. Kept only on this PC.", BuildFeedbackPage()),
+            _ => section is null ? null : SectionPage(section)
+        };
         _pageHost.Visibility = _pageHost.Child is null ? Visibility.Collapsed : Visibility.Visible;
         _homeNav.Background = NativeTheme.Brush(view is "home" or "practice" ? "Mint" : "White");
-        _settingsNav.Background = NativeTheme.Brush(_pageHost.Child is null ? "White" : "Mint");
+        _feedbackNav.Background = NativeTheme.Brush(view == "feedback" ? "Mint" : "White");
+        _settingsNav.Background = NativeTheme.Brush(view.StartsWith("settings", StringComparison.Ordinal) ? "Mint" : "White");
         if (view == "home") UpdatePracticeSummary();
         UpdateButtons();
     }
@@ -92,7 +98,7 @@ public sealed partial class NativeMainWindow
         string intro = section.Id switch
         {
             "level" => "Choose the level you want to practise at. Lucy adapts her English to it from your next conversation.",
-            "feedback" => "Your reviews and the words from finished conversations, and how you want to be reviewed. Kept only on this PC.",
+            "feedback" => "How your end-of-conversation review is given. Your corrections and saved words are on the Feedback page.",
             "ai" => "The AI provider Lucy talks through. Only the text of the conversation is sent there; your voice stays on this PC.",
             _ => ""
         };
@@ -215,29 +221,28 @@ public sealed partial class NativeMainWindow
 
     // ---- Feedback ------------------------------------------------------------------
 
-    private string FeedbackSummary()
-    {
-        int reviews = _history.Entries.Count;
-        return $"{DepthNames[_prefs.FeedbackDepth].Name} review, explained in {LanguageNames[_prefs.FeedbackLanguage]}. " +
-            (reviews == 0 ? "No saved reviews yet." : $"{reviews} saved review{(reviews == 1 ? "" : "s")} and their words.");
-    }
+    private string FeedbackSettingsSummary() =>
+        $"{DepthNames[_prefs.FeedbackDepth].Name} review, explanations in {LanguageNames[_prefs.FeedbackLanguage]}.";
 
     private FrameworkElement BuildFeedbackPage()
     {
         var page = new StackPanel();
-        page.Children.Add(BuildFeedbackChoices());
         page.Children.Add(BuildCorrectionsCard());
         page.Children.Add(BuildWordsCard());
+        page.Children.Add(BuildVocabularyCard());
+        var settings = new Button { Content = "Explanation language and review type are in Settings  →", Style = NativeTheme.Style("LinkButton"), FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-5, 0, 0, 10), Tag = "open-settings" };
+        settings.Click += (_, _) => Navigate("settings/feedback");
+        page.Children.Add(settings);
         if (_history.Entries.Count > 0)
         {
             var clear = new Button { Content = "Clear feedback history", Style = NativeTheme.Style("OutlineButton"), HorizontalAlignment = HorizontalAlignment.Left, Tag = "clear-history" };
             clear.Click += (_, _) =>
             {
-                if (MessageBox.Show(this, "Delete every saved review and word list from this PC? Your settings stay as they are.",
+                if (MessageBox.Show(this, "Delete every saved review from this PC? My vocabulary and your settings stay as they are.",
                         "Clear feedback history", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
                 try { _history.Clear(); ShowToast("Feedback history cleared."); }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Notify("The feedback history could not be cleared: its folder is not writable."); }
-                Navigate("settings/feedback");
+                Navigate("feedback");
             };
             page.Children.Add(clear);
         }
@@ -329,24 +334,24 @@ public sealed partial class NativeMainWindow
         return Card(stack);
     }
 
-    /// <summary>The words of every practised place: the ones the learner said, and the ones still to try.</summary>
+    /// <summary>The words of every practised place: the ones still to try and the ones the learner said, each with Listen and Save.</summary>
     private Border BuildWordsCard()
     {
         var stack = new StackPanel();
-        stack.Children.Add(CardTitle("Your words"));
-        var words = new Dictionary<string, (string Meaning, bool Used, SortedSet<string> Places)>(StringComparer.OrdinalIgnoreCase);
+        stack.Children.Add(CardTitle("Words from your conversations"));
+        var words = new Dictionary<string, (JsonObject Word, bool Used, SortedSet<string> Places, string Scenario, string Title)>(StringComparer.OrdinalIgnoreCase);
         string language = _prefs.FeedbackLanguage;
         foreach (var entry in _history.Entries)
         {
-            string place = Text(entry["title"]) ?? Text(entry["scenario"]) ?? "";
+            string scenario = Text(entry["scenario"]) ?? "";
+            string place = Text(entry["title"]) ?? scenario;
             foreach (var item in entry["words"] as JsonArray ?? [])
             {
                 if (item is not JsonObject word || Text(word["word"]) is not { Length: > 0 } label) continue;
-                string meaning = Text(word["meaning"]?[language]) ?? Text(word["meaning"]?["en"]) ?? "";
                 bool used = word["used_by_learner"] is JsonValue flag && flag.TryGetValue(out bool said) && said;
-                if (!words.TryGetValue(label, out var known)) known = (meaning, false, new SortedSet<string>(StringComparer.Ordinal));
+                if (!words.TryGetValue(label, out var known)) known = (word, false, new SortedSet<string>(StringComparer.Ordinal), scenario, place);
                 known.Places.Add(place);
-                words[label] = (known.Meaning.Length > 0 ? known.Meaning : meaning, known.Used || used, known.Places);
+                words[label] = (known.Word, known.Used || used, known.Places, known.Scenario, known.Title);
             }
         }
         if (words.Count == 0)
@@ -368,18 +373,121 @@ public sealed partial class NativeMainWindow
             {
                 var chip = new StackPanel();
                 chip.Children.Add(new TextBlock { Text = (used ? "✓ " : "") + label, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = NativeTheme.Brush(used ? "Teal" : "Ink") });
-                if (info.Meaning.Length > 0) chip.Children.Add(Muted(info.Meaning, 11.5));
+                string meaning = Meaning(info.Word, language);
+                if (meaning.Length > 0) chip.Children.Add(Muted(meaning, 11.5));
                 chip.Children.Add(Muted(string.Join(", ", info.Places), 10.5));
+                chip.Children.Add(WordActions(info.Word, info.Scenario, info.Title, () => Navigate("feedback")));
                 chips.Children.Add(new Border
                 {
                     Background = NativeTheme.Brush(used ? "Mint" : "Bg"), CornerRadius = new CornerRadius(10),
-                    Padding = new Thickness(12, 7, 12, 8), Margin = new Thickness(0, 0, 8, 8), MaxWidth = 250, Child = chip
+                    Padding = new Thickness(12, 7, 12, 6), Margin = new Thickness(0, 0, 8, 8), MaxWidth = 260, Child = chip
                 });
             }
             stack.Children.Add(chips);
         }
         return Card(stack);
     }
+
+    /// <summary>My vocabulary: the saved words with meaning, example and place, to listen to again or remove.</summary>
+    private Border BuildVocabularyCard()
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(CardTitle($"My vocabulary ({_vocabulary.Entries.Count})"));
+        if (_vocabulary.Entries.Count == 0)
+        {
+            stack.Children.Add(Muted("Press “+ Save” on a word, here or in the review after a conversation, to keep it here for later."));
+            return Card(stack);
+        }
+        string language = _prefs.FeedbackLanguage;
+        foreach (var entry in _vocabulary.Entries)
+        {
+            string label = Text(entry["word"]) ?? "";
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = label, FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = NativeTheme.Brush("Ink") });
+            string meaning = Meaning(entry, language);
+            if (meaning.Length > 0) text.Children.Add(Muted(meaning, 12.5));
+            if (Text(entry["example"]) is { Length: > 0 } example)
+                text.Children.Add(new TextBlock { Text = "“" + example + "”", FontSize = 12.5, FontStyle = FontStyles.Italic, Foreground = NativeTheme.Brush("Ink"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+            text.Children.Add(Muted(Text(entry["title"]) ?? "", 10.5));
+            grid.Children.Add(text);
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+            var listen = new Button { Content = "🔊 Listen", Style = NativeTheme.Style("LinkButton"), Tag = "listen:" + label };
+            AutomationProperties.SetName(listen, $"Listen to {label}");
+            listen.Click += (_, _) => Speak(label);
+            actions.Children.Add(listen);
+            var remove = new Button { Content = "Remove", Style = NativeTheme.Style("LinkButton"), Tag = "remove:" + label, Margin = new Thickness(6, 0, 0, 0) };
+            AutomationProperties.SetName(remove, $"Remove {label} from My vocabulary");
+            remove.Click += (_, _) =>
+            {
+                try { _vocabulary.Remove(label); ShowToast($"“{label}” removed from My vocabulary."); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Notify("The word could not be removed: the settings folder is not writable."); }
+                Navigate("feedback");
+            };
+            actions.Children.Add(remove);
+            Grid.SetColumn(actions, 1);
+            grid.Children.Add(actions);
+            stack.Children.Add(new Border { BorderBrush = NativeTheme.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(0, 8, 0, 8), Child = grid });
+        }
+        return Card(stack);
+    }
+
+    /// <summary>Listen (Lucy's voice) and Save (to My vocabulary) for one word.</summary>
+    private FrameworkElement WordActions(JsonObject word, string scenario, string title, Action? refresh)
+    {
+        string label = Text(word["word"]) ?? "";
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(-5, 3, 0, 0) };
+        var listen = new Button { Content = "🔊 Listen", Style = NativeTheme.Style("LinkButton"), Tag = "listen:" + label };
+        AutomationProperties.SetName(listen, $"Listen to {label}");
+        listen.Click += (_, _) => Speak(label);
+        row.Children.Add(listen);
+        bool saved = _vocabulary.Contains(label);
+        var save = new Button { Content = saved ? "✓ Saved" : "+ Save", Style = NativeTheme.Style("LinkButton"), Tag = "save:" + label, IsEnabled = !saved, Margin = new Thickness(6, 0, 0, 0) };
+        AutomationProperties.SetName(save, saved ? $"{label}, saved in My vocabulary" : $"Save {label} to My vocabulary");
+        save.Click += (_, _) =>
+        {
+            try { _vocabulary.Add(word, scenario, title, DateTime.UtcNow); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                Notify("The word could not be saved: the settings folder is not writable.");
+                return;
+            }
+            ShowToast($"“{label}” saved to My vocabulary.");
+            save.Content = "✓ Saved";
+            save.IsEnabled = false;
+            refresh?.Invoke();
+        };
+        row.Children.Add(save);
+        return row;
+    }
+
+    /// <summary>One of the place's words in the end-of-conversation review, with Listen and Save.</summary>
+    private void AddWordNote(JsonObject word, string scenario, string title, string language)
+    {
+        string label = Text(word["word"]) ?? "";
+        if (label.Length == 0) return;
+        bool used = word["used_by_learner"] is JsonValue flag && flag.TryGetValue(out bool said) && said;
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"•  {label} — {Meaning(word, language)}{(used ? "   (you used it)" : "")}",
+            TextWrapping = TextWrapping.Wrap, FontSize = 14, LineHeight = 21, Foreground = NativeTheme.Brush("Ink")
+        });
+        stack.Children.Add(WordActions(word, scenario, title, refresh: null));
+        _chat.Children.Add(new Border
+        {
+            Child = stack, CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 8, 14, 6), MaxWidth = 720,
+            HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 60, 8),
+            Background = NativeTheme.Brush("White"), BorderBrush = NativeTheme.Brush("Line"), BorderThickness = new Thickness(1)
+        });
+        UpdateChatHint();
+        ScrollChatToEnd();
+    }
+
+    private static string Meaning(JsonObject word, string language) =>
+        word["meaning"] is JsonObject meaning ? Text(meaning[language]) ?? Text(meaning["en"]) ?? "" : "";
 
     private static string When(JsonObject entry) =>
         DateTime.TryParse(Text(entry["finished_utc"]), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var finished)

@@ -27,7 +27,7 @@ public sealed partial class NativeMainWindow : Window
     private const double MapHeight = 558;
     private const string Thinking = "Lucy is thinking…";
     private const string LucyAlt = "Lucy, your illustrated AI conversation partner";
-    private const string CityAlt = "Illustrated city for choosing any of eight scenarios. The Directions scene has its own exact schematic.";
+    private const string CityAlt = "Illustrated city for choosing any of eight scenarios. The City Map scene has its own exact schematic.";
     private const string MicIdleCaption = "Press, answer out loud, press again. You can edit the words before sending.";
 
     // Pin centres in percent of the city picture, from ui/app.css (.pin-*), in the web's tab order.
@@ -54,6 +54,7 @@ public sealed partial class NativeMainWindow : Window
     private readonly string _prefsPath;
     private readonly AppPreferences _prefs;
     private readonly FeedbackHistory _history;
+    private readonly VocabularyStore _vocabulary;
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ApiConfig _config;
     private AppRouter? _router;
@@ -85,6 +86,7 @@ public sealed partial class NativeMainWindow : Window
     private readonly Button _startButton = new();
     private readonly Button _restartButton = new();
     private readonly Button _homeNav = new();
+    private readonly Button _feedbackNav = new();
     private readonly Button _settingsNav = new();
     private readonly TextBlock _practiceSummary = new();
     private readonly Button _sendButton = new();
@@ -158,6 +160,7 @@ public sealed partial class NativeMainWindow : Window
         _prefsPath = storageRoot is null ? AppPreferences.DefaultPath : Path.Combine(storageRoot, "preferences.json");
         _prefs = AppPreferences.Load(_prefsPath);
         _history = new FeedbackHistory(storageRoot is null ? FeedbackHistory.DefaultPath : Path.Combine(storageRoot, "feedback-history.json"));
+        _vocabulary = new VocabularyStore(storageRoot is null ? VocabularyStore.DefaultPath : Path.Combine(storageRoot, "vocabulary.json"));
         AppStartup.Note("startup", "native-window", "no browser component required");
         // Every spoken sentence is a temporary WAV; they are deleted as soon as the player lets go.
         _player.MediaEnded += (_, _) => { _playing?.TrySetResult(true); RetireSpokenFiles(); };
@@ -259,7 +262,7 @@ public sealed partial class NativeMainWindow : Window
         brandRow.Children.Add(brandText);
         grid.Children.Add(brandRow);
 
-        // The main navigation: the city and Settings. A conversation is not a menu entry; it opens
+        // The main navigation: the city, Feedback and Settings. A conversation is not a menu entry; it opens
         // from the city, and Home leads back to the city while keeping it open.
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         _homeNav.Content = "🏙  Home";
@@ -268,6 +271,12 @@ public sealed partial class NativeMainWindow : Window
         _homeNav.Click += (_, _) => BackToCity();
         AutomationProperties.SetName(_homeNav, "Home");
         actions.Children.Add(_homeNav);
+        _feedbackNav.Content = "📝  Feedback";
+        _feedbackNav.Style = NativeTheme.Style("OutlineButton");
+        _feedbackNav.Margin = new Thickness(0, 0, 10, 0);
+        _feedbackNav.Click += (_, _) => Navigate("feedback");
+        AutomationProperties.SetName(_feedbackNav, "Feedback");
+        actions.Children.Add(_feedbackNav);
         _settingsNav.Content = "⚙  Settings";
         _settingsNav.Style = NativeTheme.Style("OutlineButton");
         _settingsNav.Click += (_, _) => Navigate("settings");
@@ -1468,6 +1477,7 @@ public sealed partial class NativeMainWindow : Window
                 Notify("Feedback failed: " + FailureText(response, payload));
                 return;
             }
+            string placeTitle = _places.FirstOrDefault(place => place.Id == _scenarioId)?.Title ?? _scenarioId ?? "";
             AddNote("— Feedback —", heading: true);
             int corrections = 0;
             if (payload["corrections"] is JsonArray items)
@@ -1491,20 +1501,14 @@ public sealed partial class NativeMainWindow : Window
             }
             if (payload["vocabulary"] is JsonArray vocabulary)
             {
-                AddNote($"— Vocabulary ({vocabulary.Count} words for {_selected?.Title ?? _scenarioId}) —", heading: true);
+                AddNote($"— Vocabulary ({vocabulary.Count} words for {placeTitle}) —", heading: true);
                 foreach (var word in vocabulary)
-                {
-                    if (word is not JsonObject entry) continue;
-                    string label = Text(entry["word"]) ?? "";
-                    string meaning = Text(entry["meaning"]?[language]) ?? Text(entry["meaning"]?["en"]) ?? "";
-                    bool encountered = entry["encountered"] is JsonValue used && used.TryGetValue(out bool seen) && seen;
-                    AddNote($"• {label} — {meaning}{(encountered ? "  (used)" : "")}");
-                }
+                    if (word is JsonObject entry) AddWordNote(entry, _scenarioId ?? "", placeTitle, language);
             }
             try
             {
-                _history.Add(payload, _selected?.Title ?? _scenarioId ?? "", _prefs.Level, DateTime.UtcNow);
-                AddNoteLink("Saved on your Feedback page.", "Open Feedback", () => Navigate("settings/feedback"));
+                _history.Add(payload, placeTitle, _prefs.Level, DateTime.UtcNow);
+                AddNoteLink("Saved on your Feedback page.", "Open Feedback", () => Navigate("feedback"));
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -1709,6 +1713,15 @@ public sealed partial class NativeMainWindow : Window
     internal int PlaybackFailures => _playbackFailures;
     internal AppPreferences Preferences => _prefs;
     internal FeedbackHistory History => _history;
+    internal VocabularyStore Vocabulary => _vocabulary;
+    internal void ClickFeedbackNavForTest() => _feedbackNav.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+    /// <summary>Raises Click on the chat's button with this Tag, such as a word's Save in the review.</summary>
+    internal bool ClickInChatForTest(string tag)
+    {
+        var button = Descendants(_chat).OfType<Button>().FirstOrDefault(item => Equals(item.Tag, tag));
+        button?.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+        return button is not null;
+    }
     internal string CurrentView => _view;
     internal bool HomeHasPickers => Descendants(_homeView).OfType<System.Windows.Controls.Primitives.Selector>().Any();
     internal IReadOnlyList<string> SettingsSectionIds => Sections.Select(section => section.Id).ToList();

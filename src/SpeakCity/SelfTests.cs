@@ -31,6 +31,9 @@ public static class SelfTests
                 Check($"{pair.Key}: native scene picture decodes", picture.PixelWidth > 0 && new System.Windows.Controls.Image { Source = picture }.Source is not null);
             }
             Check("Native city map and Lucy portrait decode", NativeAssets.Load(NativeAssets.CityPicture).PixelWidth > 0 && NativeAssets.Load(NativeAssets.LucyPicture).PixelWidth > 0);
+            Check("The eight places are named as in the project paper, with City Map", catalog["directions"]?["title"]?["en"]?.GetValue<string>() == "City Map");
+            var allWords = catalog.SelectMany(pair => pair.Value!["vocabulary"]!.AsArray()).Select(word => word!["word"]!.GetValue<string>().ToLowerInvariant()).ToList();
+            Check("Every place has its own six words", allWords.Count == 48 && allWords.Distinct().Count() == 48);
             bool missingReported;
             try { NativeAssets.Load("not-packaged.jpg"); missingReported = false; }
             catch (InvalidOperationException) { missingReported = true; }
@@ -264,8 +267,8 @@ public static class SelfTests
                 var review = JsonNode.Parse((await words.HandleAsync("POST", $"/api/sessions/{sid}/finish", Encoding.UTF8.GetBytes(new JsonObject { ["language"] = "en" }.ToJsonString()))).Body)!;
                 var vocabulary = review["vocabulary"]!.AsArray().OfType<JsonObject>().ToDictionary(word => word["word"]!.GetValue<string>());
                 Check("Words the learner said are told apart from words only Lucy said",
-                    vocabulary["room"]["used_by_learner"]!.GetValue<bool>() && vocabulary["night"]["used_by_learner"]!.GetValue<bool>()
-                    && vocabulary["reservation"]["encountered"]!.GetValue<bool>() && !vocabulary["reservation"]["used_by_learner"]!.GetValue<bool>());
+                    vocabulary["room"]["used_by_learner"]!.GetValue<bool>() && vocabulary["book"]["encountered"]!.GetValue<bool>()
+                    && !vocabulary["book"]["used_by_learner"]!.GetValue<bool>() && !vocabulary["reception"]["encountered"]!.GetValue<bool>());
             }
 
             // Preferences and the review history live in a scratch folder here, never the learner's own.
@@ -296,6 +299,17 @@ public static class SelfTests
                 Check("Feedback history stores the review, not the conversation", !File.ReadAllText(historyPath).Contains("conversation text is not kept", StringComparison.Ordinal));
                 reloaded.Clear();
                 Check("Clearing feedback history empties it for good", new FeedbackHistory(historyPath).Entries.Count == 0);
+                string vocabularyPath = Path.Combine(scratch, "vocabulary.json");
+                var mine = new VocabularyStore(vocabularyPath);
+                var menuWord = new JsonObject { ["word"] = "menu", ["meaning"] = new JsonObject { ["en"] = "A list of food.", ["kk"] = "Мәзір.", ["ru"] = "Меню." }, ["example"] = "Can I see the menu?" };
+                mine.Add(menuWord, "cafe", "Café", DateTime.UtcNow);
+                mine.Add(menuWord, "cafe", "Café", DateTime.UtcNow);
+                mine.Add(new JsonObject { ["word"] = "bill", ["meaning"] = "not an object" }, "cafe", "Café", DateTime.UtcNow);
+                var mineAgain = new VocabularyStore(vocabularyPath);
+                Check("My vocabulary keeps each saved word once, across a restart",
+                    mineAgain.Entries.Count == 2 && mineAgain.Contains("MENU") && mineAgain.Entries.All(entry => entry["meaning"] is JsonObject));
+                mineAgain.Remove("menu");
+                Check("A word removed from My vocabulary stays removed", !new VocabularyStore(vocabularyPath).Contains("menu") && new VocabularyStore(vocabularyPath).Contains("bill"));
             }
             finally
             {
