@@ -3,7 +3,7 @@
   "catalog_present": true,
   "startup_trace": [
     "app_version=0.2.0.0",
-    "created_utc=2026-09-29T15:26:36.0245387Z",
+    "created_utc=2026-09-30T14:32:28.0149304Z",
     "desktop_session=true",
     "automated_session=true",
     "webview2_runtime_version=153.0.4234.48",
@@ -41,12 +41,16 @@
     "Lucy speaks at the level chosen in Settings",
     "Finish shows the correction in the window",
     "The review is kept for the Feedback page",
+    "A word from the review can be saved to My vocabulary",
     "Settings lists English level, Feedback and AI configuration",
     "A Settings section opens as its own page",
     "All six CEFR levels can be chosen",
     "The chosen level is saved for next time",
-    "The Feedback page shows past corrections and the place's words",
-    "Explanation language and review type are chosen on the Feedback page",
+    "Feedback is its own page next to Home and Settings, with past corrections and the place's words",
+    "The word saved in the review is in My vocabulary",
+    "A saved word can be heard in Lucy's voice",
+    "Words are saved and removed on the Feedback page and kept for next time",
+    "Explanation language and review type are chosen in Settings",
     "AI configuration is a page with the connection form",
     "A new conversation uses the level chosen in Settings",
     "The review type chosen in Settings reaches the review",
@@ -54,11 +58,11 @@
     "Saved reviews survive a restart"
   ],
   "timings_ms": {
-    "window_open_to_voice_warm_ms": 4651,
-    "greeting_first_voice_ms": 1138,
+    "window_open_to_voice_warm_ms": 5350,
+    "greeting_first_voice_ms": 1023,
     "gap_between_greeting_sentences_ms": 220,
     "greeting_next_sentence_ready_in_time": true,
-    "reply_first_voice_ms": 1380
+    "reply_first_voice_ms": 1162
   },
   "screenshots": [
     "native-ui-city.png",
