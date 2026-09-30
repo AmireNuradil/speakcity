@@ -122,6 +122,9 @@ public sealed class NativeMainWindow : Window
     // background, so neither Lucy's greeting nor the first recording pays for it.
     private Task<JsonObject>? _voicePing;
     private Task? _warmup;
+    // Completes when the whole voice start (ping, then warm-up) is over, whatever the outcome.
+    private readonly TaskCompletionSource _voiceSettled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly List<DateTime> _synthesisStarts = new();
     private volatile bool _voiceReady;
     private string? _lastLucyLine;
 
@@ -1032,6 +1035,7 @@ public sealed class NativeMainWindow : Window
     /// <summary>Returns the WAV or the router's reason; never throws, so a superseded request is harmless.</summary>
     private async Task<(byte[]? Audio, string Failure)> SynthesizeAsync(string sentence)
     {
+        _synthesisStarts.Add(DateTime.UtcNow);
         if (_voiceCache.TryGetValue(sentence, out var cached)) return (cached, "");
         try
         {
@@ -1108,7 +1112,7 @@ public sealed class NativeMainWindow : Window
     /// </summary>
     private async void StartWarmupAsync()
     {
-        if (_router is null || _voicePing is not null) return;
+        if (_router is null || _voicePing is not null) { _voiceSettled.TrySetResult(); return; }
         _voicePing = Task.Run(async () =>
         {
             var response = await CallAsync("GET", "/api/bootstrap");
@@ -1141,6 +1145,7 @@ public sealed class NativeMainWindow : Window
             Notify("Voice is unavailable: the speech component could not start. Reinstall SPEAKCITY. Typing still works.");
         }
         UpdateButtons();
+        _voiceSettled.TrySetResult();
     }
 
     /// <summary>
@@ -1611,7 +1616,9 @@ public sealed class NativeMainWindow : Window
     // ---- Smoke-test surface (NativeSmoke only) ---------------------------------------
 
     internal Task Ready => _ready.Task;
-    internal Task? VoiceWarmup => _warmup;
+    internal Task VoiceSettled => _voiceSettled.Task;
+    internal bool VoiceReady => _voiceReady;
+    internal IReadOnlyList<DateTime> SynthesisStarts => _synthesisStarts;
     internal Task? CurrentSpeech => _currentSpeech;
     internal int VoicedSentences => _voicedSentences;
     internal int PlaybackFailures => _playbackFailures;

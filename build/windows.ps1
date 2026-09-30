@@ -26,6 +26,20 @@ function Download-Checked([string]$Url, [string]$Path, [string]$Sha) {
   if ((Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Sha) { throw "Integrity check failed for $(Split-Path $Path -Leaf)" }
 }
 function Assert-Exit([string]$Name) { if ($LASTEXITCODE -ne 0) { throw "$Name returned exit code $LASTEXITCODE" } }
+function Remove-TestInstall([string]$Directory) {
+  # The test install registers itself as this machine's SPEAKCITY location, which makes a later
+  # real install default into a temporary folder that Windows is free to delete. It has to go
+  # again whether the checks after it passed or failed.
+  if ([string]::IsNullOrWhiteSpace($Directory)) { return }
+  $uninstaller = Join-Path $Directory 'unins000.exe'
+  if (-not (Test-Path $uninstaller)) { return }
+  Get-Process SpeakCity -ErrorAction SilentlyContinue | Stop-Process -Force
+  $remove = Start-Process $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+  Start-Sleep -Seconds 5
+  if ($remove.ExitCode -ne 0 -or (Test-Path $Directory)) {
+    Write-Output "The test install did not remove itself (exit $($remove.ExitCode)); delete $Directory by hand before installing SPEAKCITY for real."
+  }
+}
 function Test-RepositoryPrivate {
   # An unsigned installer and its temporary signed download links may only be published from a private repository.
   if (-not $env:GH_TOKEN -or -not $env:GITHUB_REPOSITORY) { return $false }
@@ -271,17 +285,7 @@ try {
   } else {
     throw "Native WebView2 UI smoke test failed (exit $uiExit): $($ui.error)"
   }
-  # The test install registered itself as this machine's SPEAKCITY location, which makes a later
-  # real install default into a temporary folder that Windows is free to delete. Once both checks
-  # are done the test copy has to remove itself again.
-  $uninstaller = Join-Path $installDir 'unins000.exe'
-  if (Test-Path $uninstaller) {
-    $remove = Start-Process $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
-    Start-Sleep -Seconds 5
-    if ($remove.ExitCode -ne 0 -or (Test-Path $installDir)) {
-      Write-Output "The test install did not remove itself (exit $($remove.ExitCode)); delete $installDir by hand before installing SPEAKCITY for real."
-    }
-  }
+  Remove-TestInstall $installDir
   $stage = 'private-release'
   # Publishing needs a token, a repository, and a repository that is actually
   # private. The release carries an unsigned installer, and the download pointers
@@ -354,11 +358,15 @@ try {
   # physical Windows 11 microphone, WebView2 and clean-PC install checks need a real
   # build to be run at all. The job still fails, and the release says so in its own
   # title - an incomplete candidate is never presented as a passed build.
+  try { Remove-TestInstall $installDir }
+  catch { Write-Output "Test install cleanup skipped: $($_.Exception.Message)" }
   try {
     $salvage = Join-Path $root 'out/release/SPEAKCITY-AI-Setup-x64.exe'
     # Same rule as a passing build: a public repository never publishes the unsigned installer,
     # not even as a pre-release of a failed run.
-    if ((Test-Path $salvage) -and -not (Test-RepositoryPrivate)) {
+    if ((Test-Path $salvage) -and -not $env:GH_TOKEN) {
+      Write-Output "Local build: nothing is published. The installer in out/release is from the stage-'$stage' run above; read the error below before using it."
+    } elseif ((Test-Path $salvage) -and -not (Test-RepositoryPrivate)) {
       Write-Output 'Incomplete candidate not published: the repository is public. The installer stays under out/release.'
     } elseif (Test-Path $salvage) {
       $reportsZip = Join-Path $root 'out/release/SPEAKCITY-build-reports.zip'

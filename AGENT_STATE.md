@@ -8,6 +8,14 @@ Windows proof therefore comes only from the PR's CI run. **That run needs the ow
 manual dispatch is refused to the bot token (HTTP 403). Expected counts once it runs:
 self-test **149** (was 134), UI smoke **23** (was 11). Treat them as unproven until the run shows them.
 
+**2026-09-28, the owner's own laptop build** (after PR #1 was merged): the installer compiled and the
+installed copy passed the self-test. The UI smoke then failed at "Voice warm-up loads Kokoro and
+Whisper". The cause was a race in the smoke, not in the app: `_warmup` only exists once the bootstrap
+ping returns, and on a laptop that ping (worker cold start plus hashing about 465 MB) is still running
+when the smoke looks for it, so the smoke did not wait. Fixed in the follow-up PR: the smoke now waits
+on `VoiceSettled`, and the one CPU-speed assertion (sentence gap under 400 ms) became an overlap check.
+A failed run now also uninstalls its `%TEMP%\SpeakCity Test` copy.
+
 **Native window, now like the web version.** The city view has `city` as a map with 8 pins at the
 web's percentages (keyboard-focusable named buttons; the selected pin is teal with a white ring,
 the café's is brick red), plus the Lucy card, the onboarding card and "how it works". The practice
