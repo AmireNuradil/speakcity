@@ -1,15 +1,15 @@
 {
-  "installer_bytes": 693141724,
-  "ui_smoke": "passed",
-  "commit": "ea37f5f60c900dd717997732c05a834d76bd761f",
-  "repository_private": false,
-  "signed": false,
-  "stage": "private-release",
-  "run_id": "36733410665",
   "result": "success",
+  "repository_private": false,
+  "installer_bytes": 693169415,
   "phase": "desktop-build",
-  "live_api_tested": false,
-  "installer_sha256": "ff196c69b462f763d05cd1c875b188a0d487445007d9909841039ab350373256",
+  "commit": "53f576d73a9c7b3368bbd213db54e92cb455dc21",
   "interactive_ui_verified": true,
-  "physical_windows11_microphone_tested": false
+  "installer_sha256": "018cc8126226842cf01a687c323abe4f9bcb553169bd3d42da4c809fe91ca495",
+  "run_id": "36737287271",
+  "stage": "private-release",
+  "physical_windows11_microphone_tested": false,
+  "live_api_tested": false,
+  "signed": false,
+  "ui_smoke": "passed"
 }
