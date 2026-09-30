@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -22,7 +23,7 @@ namespace SpeakCity;
 /// </summary>
 public static class NativeSmoke
 {
-    private const string Scope = "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider and speakers are test doubles (a build agent has no audio output); no live API credentials used.";
+    private const string Scope = "Native WPF path: AppRouter, bundled speech worker, Kokoro voice and the native window. AI provider and speakers are test doubles (a build agent has no audio output); preferences and reviews go to a scratch folder; no live API credentials used.";
 
     public static async Task<int> RunAsync(string reportPath)
     {
@@ -114,10 +115,14 @@ public static class NativeSmoke
     private static ApiConfig SmokeConfig => new() { BaseUrl = "https://example.invalid/v1", Model = "smoke", ApiKey = "unused" };
 
     /// <summary>Scripted provider: one known mistake gets a correction, anything else gets none.</summary>
+    private static string? _lastTurnPrompt;
+    private static string? _lastReviewPrompt;
+
     private static Task<JsonObject> Mock(string prompt, IReadOnlyList<(string Role, string Content)> messages, int maxTokens, CancellationToken ct)
     {
         if (prompt.Contains("grammar teacher", StringComparison.Ordinal))
         {
+            _lastReviewPrompt = prompt;
             var corrections = new JsonArray();
             if (messages.Any(message => message.Content.Contains("I want book a room.", StringComparison.Ordinal)))
                 corrections.Add(new JsonObject
@@ -127,6 +132,7 @@ public static class NativeSmoke
                 });
             return Task.FromResult(new JsonObject { ["corrections"] = corrections });
         }
+        _lastTurnPrompt = prompt;
         return Task.FromResult(new JsonObject { ["reply"] = "Thanks. What would you like to do next?" });
     }
 
@@ -137,16 +143,10 @@ public static class NativeSmoke
         var previousMode = app?.ShutdownMode ?? ShutdownMode.OnLastWindowClose;
         // Closing the test window must not end the process before the report is written.
         if (app is not null) app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        // Stand-in speakers: "play" each clip for its own length (capped) and log when it started and ended.
-        var clips = new List<(DateTime Start, DateTime End)>();
-        async Task<bool> Speakers(byte[] wav)
-        {
-            var started = DateTime.UtcNow;
-            await Task.Delay(TimeSpan.FromMilliseconds(Math.Min(1500, WavMilliseconds(wav))));
-            clips.Add((started, DateTime.UtcNow));
-            return true;
-        }
-        var window = new NativeMainWindow(SmokeConfig, Mock, Speakers)
+        // Test preferences and reviews go to a scratch folder, never into the learner's own settings.
+        string storage = Path.Combine(Path.GetTempPath(), "speakcity-smoke-" + Guid.NewGuid().ToString("N"));
+        var speakers = new TimelineSpeakers();
+        var window = new NativeMainWindow(SmokeConfig, Mock, speakers, storage)
         {
             ShowActivated = false,
             WindowStartupLocation = WindowStartupLocation.Manual,
@@ -163,6 +163,7 @@ public static class NativeSmoke
             check("Lucy's portrait is drawn on the city screen", window.LucyPicture is { PixelWidth: > 0 });
             check("Every map pin is a named, focusable button", window.Pins.All(pin =>
                 pin.Focusable && pin.IsTabStop && pin.IsEnabled && AutomationProperties.GetName(pin).Length > 0));
+            check("Home keeps only the practice: no level or feedback pickers", !window.HomeHasPickers);
             // The same routed event that Enter, Space or a click raise on a focused pin.
             window.Pins.First(pin => (string)pin.Tag == "cafe").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             check("Choosing a pin selects that place", window.SelectedPlaceId == "cafe");
@@ -179,22 +180,34 @@ public static class NativeSmoke
                 : $"{warmCheck} (voice start finished: {settled}, voice ready: {window.VoiceReady}, Kokoro loaded: {kokoro}, Whisper loaded: {whisper}, after {clock.ElapsedMilliseconds} ms)",
                 kokoro && whisper);
 
-            int synthesisBefore = window.SynthesisStarts.Count;
+            int synthesisBefore = window.SynthesisStarts.Count, segmentsBefore = speakers.Segments.Count;
             await window.StartForTestAsync();
             check("Start opens the practice screen with the scene portrait",
                 window.InPractice && window.PortraitPicture is { PixelWidth: > 0 } && window.PortraitPainted);
             if (window.CurrentSpeech is { } greeting) await Task.WhenAny(greeting, Task.Delay(TimeSpan.FromSeconds(60)));
             if (window.FirstVoiceDelay is { } greetingDelay) timings["greeting_first_voice_ms"] = (long)greetingDelay.TotalMilliseconds;
-            check("Lucy's greeting is voiced sentence by sentence", window.VoicedSentences >= 2 && clips.Count >= 2);
-            // Recorded, not asserted: the gap depends on this CPU. What must hold on any machine is the
-            // overlap itself, i.e. the second sentence's synthesis began before the first one played.
-            timings["gap_between_greeting_sentences_ms"] = (long)(clips[1].Start - clips[0].End).TotalMilliseconds;
+            var line = speakers.Segments.Skip(segmentsBefore).ToList();
+            var speech = line.Where(segment => !segment.Silence).ToList();
+            check("Lucy's greeting is voiced sentence by sentence", window.VoicedSentences >= 2 && speech.Count >= 2);
+            // CPU-independent: our own silence between two sentences is never more than the pause; if
+            // the next sentence was ready in time, the gap is exactly the pause; if it was not, the
+            // wait itself is the pause and nothing is added on top.
+            var gap = speech[1].Start - speech[0].End;
+            var inserted = line.Where(segment => segment.Silence && segment.Start >= speech[0].End && segment.End <= speech[1].Start)
+                .Aggregate(TimeSpan.Zero, (sum, segment) => sum + (segment.End - segment.Start));
+            bool readyInTime = (gap - inserted).Duration() < Tolerance;
+            timings["gap_between_greeting_sentences_ms"] = (long)gap.TotalMilliseconds;
+            timings["greeting_next_sentence_ready_in_time"] = readyInTime;
+            var pause = NativeMainWindow.SentencePause;
+            check("Sentences follow each other after a short pause, and nothing adds to a wait",
+                inserted <= pause + Tolerance && gap >= pause - Tolerance && (!readyInTime || (gap - pause).Duration() <= Tolerance));
             var starts = window.SynthesisStarts.Skip(synthesisBefore).ToList();
             check("The next sentence is synthesised while the previous one plays",
-                starts.Count >= 2 && starts[1] <= clips[0].Start + TimeSpan.FromMilliseconds(100));
+                starts.Count >= 2 && starts[1] <= speakers.Origin + speech[0].Start + TimeSpan.FromMilliseconds(100));
 
             await window.SendForTestAsync("I want book a room.");
             check("Lucy's replies carry her avatar", window.LucyAvatars >= 2);
+            check("Lucy speaks at the level chosen in Settings", _lastTurnPrompt?.Contains(AppRouter.LevelGuidance["A2"], StringComparison.Ordinal) == true);
             window.ShowThinkingForTest(true);
             window.ShowRecordingForTest(true);
             window.ShowToast("Transcribed. Edit it if needed, then press Send.");
@@ -207,31 +220,96 @@ public static class NativeSmoke
             await window.FinishForTestAsync();
             check("Finish shows the correction in the window",
                 window.FeedbackShown && window.ChatLines.Any(line => line.Contains("I want to book a room.", StringComparison.Ordinal)));
+            check("The review is kept for the Feedback page", window.History.Entries.Count == 1);
+            check("A word from the review can be saved to My vocabulary", window.ClickInChatForTest("save:menu") && window.Vocabulary.Contains("menu"));
             screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-feedback.png"));
 
-            // A second round where the provider returns no corrections must not be told it was perfect.
+            // Settings: one place for everything, each section its own page.
+            window.NavigateForTest("settings");
+            check("Settings lists English level, Feedback and AI configuration",
+                window.CurrentView == "settings" && window.SettingsSectionIds.SequenceEqual(["level", "feedback", "ai"]));
+            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-settings.png"));
+            check("A Settings section opens as its own page", window.ClickInPageForTest("open:level") && window.CurrentView == "settings/level");
+            check("All six CEFR levels can be chosen", AppPreferences.Levels.All(level => window.PageLines.Contains(level)));
+            window.ClickInPageForTest("B1");
+            check("The chosen level is saved for next time",
+                window.Preferences.Level == "B1" && AppPreferences.Load(Path.Combine(storage, "preferences.json")).Level == "B1");
+            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-settings-level.png"));
+
+            window.ClickFeedbackNavForTest();
+            var feedbackLines = window.PageLines.ToList();
+            check("Feedback is its own page next to Home and Settings, with past corrections and the place's words",
+                window.CurrentView == "feedback"
+                && feedbackLines.Any(text => text.Contains("I want book a room.", StringComparison.Ordinal) && text.Contains("I want to book a room.", StringComparison.Ordinal))
+                && feedbackLines.Any(text => text.StartsWith("WORDS TO TRY NEXT TIME", StringComparison.Ordinal)));
+            check("The word saved in the review is in My vocabulary", feedbackLines.Contains("My vocabulary (1)") && feedbackLines.Contains("menu"));
+            int voiced = window.SynthesisStarts.Count;
+            check("A saved word can be heard in Lucy's voice", window.ClickInPageForTest("listen:menu") && window.SynthesisStarts.Count > voiced);
+            window.ClickInPageForTest("save:order");
+            window.ClickInPageForTest("remove:menu");
+            var kept = new VocabularyStore(Path.Combine(storage, "vocabulary.json"));
+            check("Words are saved and removed on the Feedback page and kept for next time", kept.Contains("order") && !kept.Contains("menu"));
+            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-feedback-page.png"));
+
+            window.NavigateForTest("settings/feedback");
+            window.ClickInPageForTest("language:ru");
+            bool russian = window.Preferences.FeedbackLanguage == "ru";
+            window.ClickInPageForTest("language:en");
+            window.ClickInPageForTest("depth:thorough");
+            check("Explanation language and review type are chosen in Settings",
+                russian && window.Preferences.FeedbackLanguage == "en" && window.Preferences.FeedbackDepth == "thorough");
+
+            window.NavigateForTest("settings/ai");
+            check("AI configuration is a page with the connection form",
+                window.PageHas<PasswordBox>() && window.PageLines.Contains("Connect your own AI provider"));
+            screenshots.Add(await SnapshotAsync(window, reportPath, "native-ui-settings-ai.png"));
+            window.NavigateForTest("home");
+
+            // A second round at the new level and review type, where the provider finds nothing:
+            // it must not be told it was perfect.
             await window.StartForTestAsync();
             await window.SendForTestAsync("A coffee, please.");
+            check("A new conversation uses the level chosen in Settings", _lastTurnPrompt?.Contains(AppRouter.LevelGuidance["B1"], StringComparison.Ordinal) == true);
             await window.FinishForTestAsync();
+            check("The review type chosen in Settings reaches the review", _lastReviewPrompt?.Contains("at most five", StringComparison.Ordinal) == true);
             var lines = window.ChatLines.ToList();
             check("An empty review is reported honestly, not as perfect English",
                 window.FeedbackShown && lines.Contains("No clear grammar corrections were returned.")
                 && !lines.Any(line => line.Contains("Well done", StringComparison.OrdinalIgnoreCase)));
+            check("Saved reviews survive a restart", new FeedbackHistory(Path.Combine(storage, "feedback-history.json")).Entries.Count == 2);
         }
         finally
         {
             window.Close();
             if (app is not null) app.ShutdownMode = previousMode;
+            try { Directory.Delete(storage, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
 
-    private static double WavMilliseconds(byte[] wav)
+    private static readonly TimeSpan Tolerance = TimeSpan.FromMilliseconds(5);
+
+    /// <summary>
+    /// Stand-in speakers for a build agent without an audio device: a real-time timeline of what was
+    /// written, so the gaps between sentences can be measured exactly as a device would play them.
+    /// </summary>
+    private sealed class TimelineSpeakers : IVoiceOutput
     {
-        if (wav.Length <= 44) return 0;
-        int channels = Math.Max((int)BitConverter.ToInt16(wav, 22), 1);
-        int rate = Math.Max(BitConverter.ToInt32(wav, 24), 1);
-        int bits = Math.Max((int)BitConverter.ToInt16(wav, 34), 8);
-        return (wav.Length - 44) * 1000.0 / (rate * channels * (bits / 8));
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private WavFormat _format;
+        private TimeSpan _end;
+        public DateTime Origin { get; } = DateTime.UtcNow;
+        public List<(TimeSpan Start, TimeSpan End, bool Silence)> Segments { get; } = new();
+        public bool Open(WavFormat format) { _format = format; return true; }
+        public void Write(byte[] pcm)
+        {
+            var now = _clock.Elapsed;
+            var start = now > _end ? now : _end;
+            _end = start + _format.Duration(pcm.Length);
+            Segments.Add((start, _end, Array.TrueForAll(pcm, value => value == 0)));
+        }
+        public bool Playing => _clock.Elapsed < _end;
+        public void Reset() { if (_end > _clock.Elapsed) _end = _clock.Elapsed; }
+        public void Dispose() { }
     }
 
     private static async Task WithTimeout(Task task, int seconds, string message)
